@@ -5,29 +5,23 @@ const axios = require("axios");
 const app = express();
 app.use(express.json());
 
-// ABTYP API Configuration
 const ABTYP_HEADERS = {
     "api-Key": "ABTYP_API_SECRET_KEY_@ABTYP2023#@763^%ggjhg%",
     "Content-Type": "application/json"
 };
 
-// Robust Private Key loading for Render formatting
 const privateKeyInput = process.env.PRIVATE_KEY || "";
 const formattedKey = privateKeyInput.includes("BEGIN PRIVATE KEY") 
     ? privateKeyInput.replace(/\\n/g, "\n") 
     : `-----BEGIN PRIVATE KEY-----\n${privateKeyInput}\n-----END PRIVATE KEY-----`;
 
-app.get("/", (req, res) => {
-    res.status(200).send("🚀 ABTYP Multi-Page Flow Server is Live");
-});
+app.get("/", (req, res) => res.status(200).send("🚀 ABTYP Server Live"));
 
 app.post("/", async (req, res) => {
     const { encrypted_aes_key, encrypted_flow_data, initial_vector, authentication_tag } = req.body;
-
     if (!encrypted_aes_key) return res.status(200).send("OK");
 
     try {
-        // 1. Decrypt AES Key
         const aesKey = crypto.privateDecrypt({
             key: formattedKey,
             padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
@@ -38,25 +32,17 @@ app.post("/", async (req, res) => {
         const responseIv = Buffer.alloc(requestIv.length);
         for (let i = 0; i < requestIv.length; i++) { responseIv[i] = ~requestIv[i]; }
 
-        // 2. Decrypt Flow Data
         const decipher = crypto.createDecipheriv("aes-128-gcm", aesKey, requestIv);
         const flowDataBuffer = Buffer.from(encrypted_flow_data, "base64");
-        let tag = authentication_tag ? Buffer.from(authentication_tag, "base64") : flowDataBuffer.slice(-16);
-        let encryptedContent = authentication_tag ? flowDataBuffer : flowDataBuffer.slice(0, -16);
+        decipher.setAuthTag(authentication_tag ? Buffer.from(authentication_tag, "base64") : flowDataBuffer.slice(-16));
+        let decrypted = decipher.update(authentication_tag ? flowDataBuffer : flowDataBuffer.slice(0, -16), "binary", "utf8") + decipher.final("utf8");
         
-        decipher.setAuthTag(tag);
-        let decrypted = decipher.update(encryptedContent, "binary", "utf8") + decipher.final("utf8");
-        
-        const flowRequest = JSON.parse(decrypted);
-        const { action, screen, data, flow_token } = flowRequest;
+        const { action, screen, data, flow_token } = JSON.parse(decrypted);
         let responsePayloadObj = { version: "3.0", data: {} };
-
-        // --- BUSINESS LOGIC ---
 
         if (action === "ping") {
             responsePayloadObj.data = { status: "active" };
         } 
-        
         else if (action === "INIT") {
             const mobile = flow_token || "8488861504";
             const [memberRes, countryRes] = await Promise.all([
@@ -64,35 +50,22 @@ app.post("/", async (req, res) => {
                 axios.get(`https://api.abtyp.org/v0/country`, { headers: ABTYP_HEADERS })
             ]);
 
-            // Mapping for uppercase 'Data' and fixed field 'DateofBirth'
             const m = memberRes.data?.Data || {}; 
-            const countryListRaw = countryRes.data?.Data || [];
-
             responsePayloadObj.screen = "MEMBER_DETAILS";
             responsePayloadObj.data = {
                 m_name: m.MemberName || "",
                 m_father: m.FatherName || "",
                 m_dob: m.DateofBirth || "", 
                 m_email: m.EmailId || "",
-                // Safety mapping for toString() crash prevention
-                country_list: countryListRaw.map(c => ({ 
-                    id: c.CountryId ? c.CountryId.toString() : "0", 
-                    title: c.CountryName || "Unknown" 
-                }))
+                country_list: (countryRes.data?.Data || []).map(c => ({ id: c.CountryId?.toString() || "0", title: c.CountryName || "N/A" }))
             };
         }
-
         else if (action === "data_exchange") {
             if (screen === "MEMBER_DETAILS") {
                 const stateRes = await axios.get(`https://api.abtyp.org/v0/state?CountryId=${data.selected_country}`, { headers: ABTYP_HEADERS });
-                const statesRaw = stateRes.data?.Data || [];
-
                 responsePayloadObj.screen = "LOCATION_SELECT";
                 responsePayloadObj.data = {
-                    state_list: statesRaw.map(s => ({ 
-                        id: s.StateId ? s.StateId.toString() : "0", 
-                        title: s.StateName || "Unknown" 
-                    })),
+                    state_list: (stateRes.data?.Data || []).map(s => ({ id: s.StateId?.toString() || "0", title: s.StateName || "N/A" })),
                     parishad_list: [],
                     captured_name: data.temp_name,
                     captured_father: data.temp_father,
@@ -100,34 +73,24 @@ app.post("/", async (req, res) => {
                     captured_email: data.temp_email
                 };
             } 
-            else if (screen === "LOCATION_SELECT" && data.selected_state) {
+            else if (screen === "LOCATION_SELECT") {
                 const parishadRes = await axios.get(`https://api.abtyp.org/v0/parishad?StateId=${data.selected_state}`, { headers: ABTYP_HEADERS });
-                const parishadsRaw = parishadRes.data?.Data || [];
-
                 responsePayloadObj.screen = "LOCATION_SELECT";
                 responsePayloadObj.data = {
                     ...data,
-                    parishad_list: parishadsRaw.map(p => ({ 
-                        id: p.ParishadId ? p.ParishadId.toString() : "0", 
-                        title: p.ParishadName || "Unknown" 
-                    }))
+                    parishad_list: (parishadRes.data?.Data || []).map(p => ({ id: p.ParishadId?.toString() || "0", title: p.ParishadName || "N/A" }))
                 };
             }
         }
 
-        // 3. Encrypt and Send Response
-        const responsePayload = JSON.stringify(responsePayloadObj);
         const cipher = crypto.createCipheriv("aes-128-gcm", aesKey, responseIv);
-        let encrypted = Buffer.concat([cipher.update(responsePayload, "utf8"), cipher.final()]);
-        
-        res.set("Content-Type", "text/plain");
+        const encrypted = Buffer.concat([cipher.update(JSON.stringify(responsePayloadObj), "utf8"), cipher.final()]);
         return res.status(200).send(Buffer.concat([encrypted, cipher.getAuthTag()]).toString("base64"));
 
     } catch (err) {
-        console.error("❌ Handshake/Logic Error:", err.message);
+        console.error("❌ Error:", err.message);
         return res.status(421).send("Key Refresh Required"); 
     }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Server listening on port ${PORT}`));
+app.listen(process.env.PORT || 3000);
