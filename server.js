@@ -60,23 +60,25 @@ app.post("/", async (req, res) => {
         }
         else if (action === "data_exchange") {
             if (screen === "MEMBER_DETAILS") {
+                // User picked Country -> Get States & Map keys to match JSON "captured_..."
                 const stateRes = await axios.get(`https://api.abtyp.org/v0/state?CountryId=${data.selected_country}`, { headers: ABTYP_HEADERS });
                 responsePayloadObj.screen = "LOCATION_SELECT";
                 responsePayloadObj.data = {
                     state_list: (stateRes.data?.data || []).map(s => ({ id: s.StateId.toString(), title: s.StateName })),
                     parishad_list: [],
-                    // Pass personal data forward
-                    cap_name: data.temp_name,
-                    cap_father: data.temp_father,
-                    cap_dob: data.temp_dob,
-                    cap_email: data.temp_email
+                    // These MUST match the "data" section of LOCATION_SELECT in your JSON
+                    captured_name: data.temp_name,
+                    captured_father: data.temp_father,
+                    captured_dob: data.temp_dob,
+                    captured_email: data.temp_email
                 };
             } 
             else if (screen === "LOCATION_SELECT" && data.selected_state) {
+                // User picked State -> Get Parishads & Preserve personal info
                 const parishadRes = await axios.get(`https://api.abtyp.org/v0/parishad?StateId=${data.selected_state}`, { headers: ABTYP_HEADERS });
                 responsePayloadObj.screen = "LOCATION_SELECT";
                 responsePayloadObj.data = {
-                    ...data, // Keep state_list and personal info
+                    ...data, // This automatically keeps captured_name, etc., if they were in the payload
                     parishad_list: (parishadRes.data?.data || []).map(p => ({ id: p.ParishadId.toString(), title: p.ParishadName }))
                 };
             }
