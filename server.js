@@ -62,22 +62,30 @@ app.post("/", async (req, res) => {
         
         // B. Handle Flow Initialization
         else if (action === "INIT") {
-            const mobile = flow_token || "8488861504";
-            const [memberRes, countryRes] = await Promise.all([
-                axios.get(`https://api.abtyp.org/v0/membershipdata?MobileNo=${mobile}`, { headers: ABTYP_HEADERS }),
-                axios.get(`https://api.abtyp.org/v0/country`, { headers: ABTYP_HEADERS })
-            ]);
+    const mobile = flow_token || "8488861504";
+    const [memberRes, countryRes] = await Promise.all([
+        axios.get(`https://api.abtyp.org/v0/membershipdata?MobileNo=${mobile}`, { headers: ABTYP_HEADERS }),
+        axios.get(`https://api.abtyp.org/v0/country`, { headers: ABTYP_HEADERS })
+    ]);
 
-            const m = memberRes.data?.data || {};
-            responsePayloadObj.screen = "MEMBER_DETAILS";
-            responsePayloadObj.data = {
-                m_name: m.MemberName || "",
-                m_father: m.FatherName || "",
-                m_dob: m.dob || "",
-                m_email: m.EmailId || "",
-                country_list: (countryRes.data?.data || []).map(c => ({ id: c.CountryId.toString(), title: c.CountryName }))
-            };
-        }
+    // FIX: Match the Uppercase "Data" and "Status" from your API
+    const m = memberRes.data?.Data || {}; 
+    const isSuccess = memberRes.data?.Status === true;
+
+    responsePayloadObj.screen = "MEMBER_DETAILS";
+    responsePayloadObj.data = {
+        // FIX: Map the correct API keys
+        m_name: m.MemberName || "",
+        m_father: m.FatherName || "",
+        m_dob: m.DateofBirth || "", // API uses DateofBirth
+        m_email: m.EmailId || "",
+        // FIX: Ensure country mapping handles the uppercase Data key
+        country_list: (countryRes.data?.Data || []).map(c => ({ 
+            id: c.CountryId.toString(), 
+            title: c.CountryName 
+        }))
+    };
+}
 
         // C. Handle Screen Transitions & Dropdowns
         else if (action === "data_exchange") {
