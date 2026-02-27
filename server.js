@@ -40,7 +40,6 @@ app.post("/", async (req, res) => {
         const { action, screen, data, flow_token } = JSON.parse(decrypted);
         let responsePayloadObj = { version: "3.0", data: {} };
 
-        // Helper function to filter unique IDs for Dropdowns
         const getUniqueList = (arr, idKey, titleKey) => {
             const seen = new Set();
             return (arr || []).filter(item => {
@@ -79,10 +78,10 @@ app.post("/", async (req, res) => {
                 responsePayloadObj.data = {
                     state_list: getUniqueList(stateRes.data?.Data, "StateId", "StateName"),
                     parishad_list: [],
-                    captured_name: data.temp_name,
-                    captured_father: data.temp_father,
-                    captured_dob: data.temp_dob,
-                    captured_email: data.temp_email
+                    captured_name: data.temp_name || "",
+                    captured_father: data.temp_father || "",
+                    captured_dob: data.temp_dob || "",
+                    captured_email: data.temp_email || ""
                 };
             } 
             else if (screen === "LOCATION_SELECT") {
