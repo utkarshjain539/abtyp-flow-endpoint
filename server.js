@@ -49,12 +49,14 @@ app.post("/", async (req, res) => {
             responsePayloadObj.data = { status: "active" };
         } 
         else if (action === "INIT") {
-            // Logic to clean the phone number (removes '91' if present)
-            let mobile = flow_token || "8488861504";
-            if (mobile.startsWith("91") && mobile.length > 10) {
-                mobile = mobile.substring(2);
-            }
+            // 1. Detect if we are in the Meta Preview/Builder
+            let mobile = flow_token;
             
+            if (!mobile || mobile.includes("builder") || mobile.includes("flows-")) {
+                console.log("🛠️ Builder detected - Using test number 8488861504");
+                mobile = "8488861504"; // Use your real number for testing
+            }
+
             console.log(`Step 4a: Fetching data for Mobile: ${mobile}`);
 
             try {
@@ -63,11 +65,11 @@ app.post("/", async (req, res) => {
                     axios.get(`https://api.abtyp.org/v0/country`, { headers: ABTYP_HEADERS })
                 ]);
 
-                // Even if member is null, we still get the country list
+                // 2. Map Member Data
                 const m = memberRes.data?.Data || {}; 
                 const countriesRaw = countryRes.data?.Data || [];
 
-                // Unique ID Filter
+                // 3. Unique ID Filter for Countries (The "Duplicate ID" fix)
                 const seenIds = new Set();
                 const uniqueCountries = [];
                 countriesRaw.forEach(c => {
@@ -78,21 +80,23 @@ app.post("/", async (req, res) => {
                     }
                 });
 
+                // 4. Send Response
                 responsePayloadObj.screen = "MEMBER_DETAILS";
                 responsePayloadObj.data = {
-                    // If m is empty, these will show as blank for the user to type
                     m_name: m.MemberName || "",
                     m_father: m.FatherName || "",
                     m_dob: m.DateofBirth || "", 
                     m_email: m.EmailId || "",
                     country_list: uniqueCountries.length > 0 ? uniqueCountries : [{id: "100", title: "India"}]
                 };
+
+                console.log(`✅ Data Found for ${mobile}: ${m.MemberName || 'New User'}`);
+
             } catch (err) {
-                console.error("API Error:", err.message);
+                console.error("❌ API Fetch Error:", err.message);
+                // Fail-safe response so the flow still opens
                 responsePayloadObj.screen = "MEMBER_DETAILS";
-                responsePayloadObj.data = {
-                    m_name: "", country_list: [{id: "100", title: "India"}]
-                };
+                responsePayloadObj.data = { m_name: "", country_list: [{id: "100", title: "India"}] };
             }
         }
 
