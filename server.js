@@ -73,11 +73,16 @@ app.post("/", async (req, res) => {
         }
         else if (action === "data_exchange") {
             if (screen === "MEMBER_DETAILS") {
+                // Moving from Screen 1 to Screen 2
                 const stateRes = await axios.get(`https://api.abtyp.org/v0/state?CountryId=${data.selected_country}`, { headers: ABTYP_HEADERS });
                 responsePayloadObj.screen = "LOCATION_SELECT";
                 responsePayloadObj.data = {
+                    country_list: data.country_list, // Pass full list forward
                     state_list: getUniqueList(stateRes.data?.Data, "StateId", "StateName"),
                     parishad_list: [],
+                    sel_c: data.selected_country, // Set the country chosen on screen 1
+                    sel_s: null,
+                    sel_p: null,
                     captured_name: data.temp_name || "",
                     captured_father: data.temp_father || "",
                     captured_dob: data.temp_dob || "",
@@ -85,12 +90,27 @@ app.post("/", async (req, res) => {
                 };
             } 
             else if (screen === "LOCATION_SELECT") {
-                const parishadRes = await axios.get(`https://api.abtyp.org/v0/parishad?StateId=${data.selected_state}`, { headers: ABTYP_HEADERS });
-                responsePayloadObj.screen = "LOCATION_SELECT";
-                responsePayloadObj.data = {
-                    ...data,
-                    parishad_list: getUniqueList(parishadRes.data?.Data, "ParishadId", "ParishadName")
-                };
+                if (data.exchange_type === "COUNTRY_CHANGE") {
+                    // Reset States and Parishads when Country is changed on Screen 2
+                    const stateRes = await axios.get(`https://api.abtyp.org/v0/state?CountryId=${data.sel_c}`, { headers: ABTYP_HEADERS });
+                    responsePayloadObj.screen = "LOCATION_SELECT";
+                    responsePayloadObj.data = {
+                        ...data,
+                        state_list: getUniqueList(stateRes.data?.Data, "StateId", "StateName"),
+                        parishad_list: [],
+                        sel_s: null,
+                        sel_p: null
+                    };
+                } else {
+                    // Handle State change to load Parishads
+                    const parishadRes = await axios.get(`https://api.abtyp.org/v0/parishad?StateId=${data.sel_s}`, { headers: ABTYP_HEADERS });
+                    responsePayloadObj.screen = "LOCATION_SELECT";
+                    responsePayloadObj.data = {
+                        ...data,
+                        parishad_list: getUniqueList(parishadRes.data?.Data, "ParishadId", "ParishadName"),
+                        sel_p: null
+                    };
+                }
             }
         }
 
