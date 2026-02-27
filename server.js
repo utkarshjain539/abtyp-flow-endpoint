@@ -55,37 +55,46 @@ app.post("/", async (req, res) => {
             responsePayloadObj.data = { status: "active" };
         } 
         else if (action === "INIT") {
-            console.log("Step 4a: Handling INIT - Fetching Member & Countries...");
             const mobile = flow_token || "8488861504";
-            const [memberRes, countryRes] = await Promise.all([
-                axios.get(`https://api.abtyp.org/v0/membershipdata?MobileNo=${mobile}`, { headers: ABTYP_HEADERS }),
-                axios.get(`https://api.abtyp.org/v0/country`, { headers: ABTYP_HEADERS })
-            ]);
+            console.log(`Step 4a: Fetching data for Mobile: ${mobile}`);
 
-            const m = memberRes.data?.Data || {}; 
-            const countriesRaw = countryRes.data?.Data || [];
+            try {
+                const [memberRes, countryRes] = await Promise.all([
+                    axios.get(`https://api.abtyp.org/v0/membershipdata?MobileNo=${mobile}`, { headers: ABTYP_HEADERS }),
+                    axios.get(`https://api.abtyp.org/v0/country`, { headers: ABTYP_HEADERS })
+                ]);
 
-            // Unique ID Filter for Countries
-            const seenIds = new Set();
-            const uniqueCountries = [];
-            countriesRaw.forEach(c => {
-                const cid = c.CountryId?.toString();
-                if (cid && !seenIds.has(cid)) {
-                    seenIds.add(cid);
-                    uniqueCountries.push({ id: cid, title: c.CountryName || "N/A" });
-                }
-            });
+                // LOG THE RAW API RESPONSES
+                console.log("Member API RAW:", JSON.stringify(memberRes.data));
+                console.log("Country API RAW Status:", countryRes.data?.Status);
 
-            responsePayloadObj.screen = "MEMBER_DETAILS";
-            // THESE KEYS MUST MATCH THE FLOW DATA SECTION
-            responsePayloadObj.data = {
-                m_name: m.MemberName || "",
-                m_father: m.FatherName || "",
-                m_dob: m.DateofBirth || "", 
-                m_email: m.EmailId || "",
-                country_list: uniqueCountries
-            };
-            console.log("✅ INIT Data Packaged:", responsePayloadObj.data);
+                const m = memberRes.data?.Data || {}; 
+                const countriesRaw = countryRes.data?.Data || [];
+
+                // Unique ID Filter for Countries
+                const seenIds = new Set();
+                const uniqueCountries = [];
+                countriesRaw.forEach(c => {
+                    const cid = c.CountryId?.toString();
+                    if (cid && !seenIds.has(cid)) {
+                        seenIds.add(cid);
+                        uniqueCountries.push({ id: cid, title: c.CountryName || "N/A" });
+                    }
+                });
+
+                responsePayloadObj.screen = "MEMBER_DETAILS";
+                responsePayloadObj.data = {
+                    m_name: m.MemberName || "Not Found", // Temporary text to see if it works
+                    m_father: m.FatherName || "Not Found",
+                    m_dob: m.DateofBirth || "01/01/1990", 
+                    m_email: m.EmailId || "none@test.com",
+                    country_list: uniqueCountries.length > 0 ? uniqueCountries : [{id: "1", title: "No Countries Found"}]
+                };
+            } catch (apiErr) {
+                console.error("❌ ABTYP API CRASHED:", apiErr.message);
+                // Fallback data so the flow doesn't stay blank
+                responsePayloadObj.data = { m_name: "API Error", country_list: [{id: "0", title: "Error Loading"}] };
+            }
         }
         else if (action === "data_exchange") {
             if (screen === "MEMBER_DETAILS") {
