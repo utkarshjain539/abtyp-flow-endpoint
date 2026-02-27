@@ -15,13 +15,19 @@ const formattedKey = privateKeyInput.includes("BEGIN PRIVATE KEY")
     ? privateKeyInput.replace(/\\n/g, "\n") 
     : `-----BEGIN PRIVATE KEY-----\n${privateKeyInput}\n-----END PRIVATE KEY-----`;
 
-app.get("/", (req, res) => res.status(200).send("🚀 ABTYP Server Live"));
+app.get("/", (req, res) => res.status(200).send("🚀 ABTYP Diagnostic Server Live"));
 
 app.post("/", async (req, res) => {
+    console.log("--- 📥 NEW REQUEST RECEIVED ---");
     const { encrypted_aes_key, encrypted_flow_data, initial_vector, authentication_tag } = req.body;
-    if (!encrypted_aes_key) return res.status(200).send("OK");
+
+    if (!encrypted_aes_key) {
+        console.log("Health check ping received (unencrypted)");
+        return res.status(200).send("OK");
+    }
 
     try {
+        console.log("Step 1: Decrypting AES Key...");
         const aesKey = crypto.privateDecrypt({
             key: formattedKey,
             padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
@@ -32,18 +38,24 @@ app.post("/", async (req, res) => {
         const responseIv = Buffer.alloc(requestIv.length);
         for (let i = 0; i < requestIv.length; i++) { responseIv[i] = ~requestIv[i]; }
 
+        console.log("Step 2: Decrypting Flow Data payload...");
         const decipher = crypto.createDecipheriv("aes-128-gcm", aesKey, requestIv);
         const flowDataBuffer = Buffer.from(encrypted_flow_data, "base64");
         decipher.setAuthTag(authentication_tag ? Buffer.from(authentication_tag, "base64") : flowDataBuffer.slice(-16));
         let decrypted = decipher.update(authentication_tag ? flowDataBuffer : flowDataBuffer.slice(0, -16), "binary", "utf8") + decipher.final("utf8");
         
-        const { action, screen, data, flow_token } = JSON.parse(decrypted);
+        const flowRequest = JSON.parse(decrypted);
+        const { action, screen, data, flow_token } = flowRequest;
+        console.log(`Step 3: Action detected: [${action}] | Screen: [${screen}]`);
+        console.log("Incoming Data Payload:", JSON.stringify(data, null, 2));
+
         let responsePayloadObj = { version: "3.0", data: {} };
 
         if (action === "ping") {
             responsePayloadObj.data = { status: "active" };
         } 
         else if (action === "INIT") {
+            console.log("Step 4a: Handling INIT - Fetching Member & Countries...");
             const mobile = flow_token || "8488861504";
             const [memberRes, countryRes] = await Promise.all([
                 axios.get(`https://api.abtyp.org/v0/membershipdata?MobileNo=${mobile}`, { headers: ABTYP_HEADERS }),
@@ -51,6 +63,8 @@ app.post("/", async (req, res) => {
             ]);
 
             const m = memberRes.data?.Data || {}; 
+            console.log(`Member API Result: ${memberRes.data?.Status ? "✅ SUCCESS" : "❌ FAILED"}`);
+            
             responsePayloadObj.screen = "MEMBER_DETAILS";
             responsePayloadObj.data = {
                 m_name: m.MemberName || "",
@@ -62,7 +76,9 @@ app.post("/", async (req, res) => {
         }
         else if (action === "data_exchange") {
             if (screen === "MEMBER_DETAILS") {
+                console.log(`Step 4b: Country Selected [${data.selected_country}]. Fetching States...`);
                 const stateRes = await axios.get(`https://api.abtyp.org/v0/state?CountryId=${data.selected_country}`, { headers: ABTYP_HEADERS });
+                
                 responsePayloadObj.screen = "LOCATION_SELECT";
                 responsePayloadObj.data = {
                     state_list: (stateRes.data?.Data || []).map(s => ({ id: s.StateId?.toString() || "0", title: s.StateName || "N/A" })),
@@ -74,7 +90,9 @@ app.post("/", async (req, res) => {
                 };
             } 
             else if (screen === "LOCATION_SELECT") {
+                console.log(`Step 4c: State Selected [${data.selected_state}]. Fetching Parishads...`);
                 const parishadRes = await axios.get(`https://api.abtyp.org/v0/parishad?StateId=${data.selected_state}`, { headers: ABTYP_HEADERS });
+                
                 responsePayloadObj.screen = "LOCATION_SELECT";
                 responsePayloadObj.data = {
                     ...data,
@@ -83,14 +101,20 @@ app.post("/", async (req, res) => {
             }
         }
 
+        console.log("Step 5: Encrypting response...");
         const cipher = crypto.createCipheriv("aes-128-gcm", aesKey, responseIv);
         const encrypted = Buffer.concat([cipher.update(JSON.stringify(responsePayloadObj), "utf8"), cipher.final()]);
+        
+        console.log("--- ✅ RESPONSE SENT SUCCESSFULLY ---\n");
         return res.status(200).send(Buffer.concat([encrypted, cipher.getAuthTag()]).toString("base64"));
 
     } catch (err) {
-        console.error("❌ Error:", err.message);
+        console.error("❌ CRITICAL ERROR IN POST ROUTE:");
+        console.error("Message:", err.message);
+        console.error("Stack:", err.stack);
         return res.status(421).send("Key Refresh Required"); 
     }
 });
 
-app.listen(process.env.PORT || 3000);
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`🚀 Diagnostic Server listening on port ${PORT}`));
