@@ -49,16 +49,21 @@ app.post("/", async (req, res) => {
             responsePayloadObj.data = { status: "active" };
         } 
         else if (action === "INIT") {
-            const mobile = flow_token || "8488861504";
+            // Logic to clean the phone number (removes '91' if present)
+            let mobile = flow_token || "8488861504";
+            if (mobile.startsWith("91") && mobile.length > 10) {
+                mobile = mobile.substring(2);
+            }
             
+            console.log(`Step 4a: Fetching data for Mobile: ${mobile}`);
+
             try {
                 const [memberRes, countryRes] = await Promise.all([
                     axios.get(`https://api.abtyp.org/v0/membershipdata?MobileNo=${mobile}`, { headers: ABTYP_HEADERS }),
                     axios.get(`https://api.abtyp.org/v0/country`, { headers: ABTYP_HEADERS })
                 ]);
 
-                console.log("Member API Raw:", JSON.stringify(memberRes.data));
-
+                // Even if member is null, we still get the country list
                 const m = memberRes.data?.Data || {}; 
                 const countriesRaw = countryRes.data?.Data || [];
 
@@ -75,21 +80,18 @@ app.post("/", async (req, res) => {
 
                 responsePayloadObj.screen = "MEMBER_DETAILS";
                 responsePayloadObj.data = {
-                    m_name: m.MemberName || "API_EMPTY_NAME",
-                    m_father: m.FatherName || "API_EMPTY_FATHER",
-                    m_dob: m.DateofBirth || "01/01/1990", 
-                    m_email: m.EmailId || "no-email@test.com",
-                    country_list: uniqueCountries.length > 0 ? uniqueCountries : [{id: "1", title: "No Countries Found"}]
+                    // If m is empty, these will show as blank for the user to type
+                    m_name: m.MemberName || "",
+                    m_father: m.FatherName || "",
+                    m_dob: m.DateofBirth || "", 
+                    m_email: m.EmailId || "",
+                    country_list: uniqueCountries.length > 0 ? uniqueCountries : [{id: "100", title: "India"}]
                 };
             } catch (err) {
                 console.error("API Error:", err.message);
                 responsePayloadObj.screen = "MEMBER_DETAILS";
                 responsePayloadObj.data = {
-                    m_name: "FETCH_FAILED",
-                    m_father: "FETCH_FAILED",
-                    m_dob: "01/01/1990",
-                    m_email: "error@test.com",
-                    country_list: [{id: "0", title: "Error Loading Data"}]
+                    m_name: "", country_list: [{id: "100", title: "India"}]
                 };
             }
         }
