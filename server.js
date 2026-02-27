@@ -76,15 +76,19 @@ app.post("/", async (req, res) => {
         }
         else if (action === "data_exchange") {
             if (screen === "MEMBER_DETAILS") {
-                console.log("➡️ Processing Page 1 -> Page 2 Transition");
                 const stateRes = await axios.get(`https://api.abtyp.org/v0/state?CountryId=100`, { headers: ABTYP_HEADERS });
                 
+                // RESCUE: If API or Screen 1 fails to provide countries, provide defaults
+                let countries = data.country_list && data.country_list.length > 0 
+                    ? data.country_list 
+                    : [{id: "100", title: "India"}, {id: "101", title: "Nepal"}, {id: "102", title: "USA"}];
+
                 let states = getUniqueList(stateRes.data?.Data, "StateId", "StateName");
                 if (states.length === 0) states = [{id: "1", title: "Gujarat (API Fallback)"}];
 
                 responsePayloadObj.screen = "LOCATION_SELECT";
                 responsePayloadObj.data = {
-                    country_list: data.country_list && data.country_list.length > 0 ? data.country_list : [{id: "100", title: "India"}],
+                    country_list: countries,
                     state_list: states,
                     parishad_list: [],
                     sel_c: "100", 
@@ -98,7 +102,6 @@ app.post("/", async (req, res) => {
             } 
             else if (screen === "LOCATION_SELECT") {
                 if (data.exchange_type === "COUNTRY_CHANGE") {
-                    console.log(`🔄 Fetching states for: ${data.sel_c}`);
                     const stateRes = await axios.get(`https://api.abtyp.org/v0/state?CountryId=${data.sel_c}`, { headers: ABTYP_HEADERS });
                     responsePayloadObj.screen = "LOCATION_SELECT";
                     responsePayloadObj.data = {
@@ -109,7 +112,6 @@ app.post("/", async (req, res) => {
                         sel_p: ""
                     };
                 } else {
-                    console.log(`🔄 Fetching parishads for: ${data.sel_s}`);
                     const parishadRes = await axios.get(`https://api.abtyp.org/v0/parishad?StateId=${data.sel_s}`, { headers: ABTYP_HEADERS });
                     responsePayloadObj.screen = "LOCATION_SELECT";
                     responsePayloadObj.data = {
@@ -123,11 +125,10 @@ app.post("/", async (req, res) => {
 
         const cipher = crypto.createCipheriv("aes-128-gcm", aesKey, responseIv);
         const encrypted = Buffer.concat([cipher.update(JSON.stringify(responsePayloadObj), "utf8"), cipher.final()]);
-        console.log("📤 Sending Response...");
         return res.status(200).send(Buffer.concat([encrypted, cipher.getAuthTag()]).toString("base64"));
 
     } catch (err) {
-        console.error("❌ Critical Error:", err.message);
+        console.error("❌ Error:", err.message);
         return res.status(421).send("Key Refresh Required"); 
     }
 });
