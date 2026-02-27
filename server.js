@@ -55,37 +55,38 @@ app.post("/", async (req, res) => {
             responsePayloadObj.data = { status: "active" };
         } 
         else if (action === "INIT") {
-    console.log("Step 4a: Handling INIT - Fetching Member & Countries...");
-    const mobile = flow_token || "8488861504";
-    const [memberRes, countryRes] = await Promise.all([
-        axios.get(`https://api.abtyp.org/v0/membershipdata?MobileNo=${mobile}`, { headers: ABTYP_HEADERS }),
-        axios.get(`https://api.abtyp.org/v0/country`, { headers: ABTYP_HEADERS })
-    ]);
+            console.log("Step 4a: Handling INIT - Fetching Member & Countries...");
+            const mobile = flow_token || "8488861504";
+            const [memberRes, countryRes] = await Promise.all([
+                axios.get(`https://api.abtyp.org/v0/membershipdata?MobileNo=${mobile}`, { headers: ABTYP_HEADERS }),
+                axios.get(`https://api.abtyp.org/v0/country`, { headers: ABTYP_HEADERS })
+            ]);
 
-    const m = memberRes.data?.Data || {};
-    const countriesRaw = countryRes.data?.Data || [];
+            const m = memberRes.data?.Data || {}; 
+            const countriesRaw = countryRes.data?.Data || [];
 
-    // --- NEW: Filter for Unique IDs to prevent Dropdown crash ---
-    const uniqueCountries = [];
-    const seenIds = new Set();
+            // Unique ID Filter for Countries
+            const seenIds = new Set();
+            const uniqueCountries = [];
+            countriesRaw.forEach(c => {
+                const cid = c.CountryId?.toString();
+                if (cid && !seenIds.has(cid)) {
+                    seenIds.add(cid);
+                    uniqueCountries.push({ id: cid, title: c.CountryName || "N/A" });
+                }
+            });
 
-    countriesRaw.forEach(c => {
-        const cid = c.CountryId?.toString();
-        if (cid && !seenIds.has(cid)) {
-            seenIds.add(cid);
-            uniqueCountries.push({ id: cid, title: c.CountryName || "N/A" });
+            responsePayloadObj.screen = "MEMBER_DETAILS";
+            // THESE KEYS MUST MATCH THE FLOW DATA SECTION
+            responsePayloadObj.data = {
+                m_name: m.MemberName || "",
+                m_father: m.FatherName || "",
+                m_dob: m.DateofBirth || "", 
+                m_email: m.EmailId || "",
+                country_list: uniqueCountries
+            };
+            console.log("✅ INIT Data Packaged:", responsePayloadObj.data);
         }
-    });
-
-    responsePayloadObj.screen = "MEMBER_DETAILS";
-    responsePayloadObj.data = {
-        m_name: m.MemberName || "",
-        m_father: m.FatherName || "",
-        m_dob: m.DateofBirth || "",
-        m_email: m.EmailId || "",
-        country_list: uniqueCountries // Sending the cleaned list
-    };
-}
         else if (action === "data_exchange") {
             if (screen === "MEMBER_DETAILS") {
                 console.log(`Step 4b: Country Selected [${data.selected_country}]. Fetching States...`);
