@@ -40,6 +40,7 @@ app.post("/", async (req, res) => {
         const { action, screen, data, flow_token } = JSON.parse(decrypted);
         let responsePayloadObj = { version: "3.0", data: {} };
 
+        // Helper to ensure IDs are always strings and unique
         const getUniqueList = (arr, idKey, titleKey) => {
             const seen = new Set();
             return (arr || []).filter(item => {
@@ -73,17 +74,16 @@ app.post("/", async (req, res) => {
         }
         else if (action === "data_exchange") {
             if (screen === "MEMBER_DETAILS") {
-                console.log("➡️ Processing Transition: MEMBER_DETAILS to LOCATION_SELECT");
+                // Moving to Page 2
                 const stateRes = await axios.get(`https://api.abtyp.org/v0/state?CountryId=100`, { headers: ABTYP_HEADERS });
-                
                 responsePayloadObj.screen = "LOCATION_SELECT";
                 responsePayloadObj.data = {
-                    country_list: data.country_list || [{id: "100", title: "India"}],
+                    country_list: data.country_list || [],
                     state_list: getUniqueList(stateRes.data?.Data, "StateId", "StateName"),
                     parishad_list: [],
-                    sel_c: "100", 
-                    sel_s: "", // CHANGED: null to empty string
-                    sel_p: "", // CHANGED: null to empty string
+                    sel_c: "100", // Start with India by default
+                    sel_s: "",    // Must be empty string, not null
+                    sel_p: "",    // Must be empty string, not null
                     captured_name: data.temp_name || "",
                     captured_father: data.temp_father || "",
                     captured_dob: data.temp_dob || "",
@@ -98,8 +98,8 @@ app.post("/", async (req, res) => {
                         ...data,
                         state_list: getUniqueList(stateRes.data?.Data, "StateId", "StateName"),
                         parishad_list: [],
-                        sel_s: "", // CHANGED: null to empty string
-                        sel_p: ""  // CHANGED: null to empty string
+                        sel_s: "",
+                        sel_p: ""
                     };
                 } else {
                     const parishadRes = await axios.get(`https://api.abtyp.org/v0/parishad?StateId=${data.sel_s}`, { headers: ABTYP_HEADERS });
@@ -107,7 +107,7 @@ app.post("/", async (req, res) => {
                     responsePayloadObj.data = {
                         ...data,
                         parishad_list: getUniqueList(parishadRes.data?.Data, "ParishadId", "ParishadName"),
-                        sel_p: "" // CHANGED: null to empty string
+                        sel_p: ""
                     };
                 }
             }
