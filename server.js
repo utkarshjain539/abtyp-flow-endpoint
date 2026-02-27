@@ -15,19 +15,14 @@ const formattedKey = privateKeyInput.includes("BEGIN PRIVATE KEY")
     ? privateKeyInput.replace(/\\n/g, "\n") 
     : `-----BEGIN PRIVATE KEY-----\n${privateKeyInput}\n-----END PRIVATE KEY-----`;
 
-app.get("/", (req, res) => res.status(200).send("🚀 ABTYP Logging Server Live"));
+app.get("/", (req, res) => res.status(200).send("🚀 ABTYP Production Server Live"));
 
 app.post("/", async (req, res) => {
     console.log("\n--- 📥 NEW REQUEST RECEIVED ---");
     const { encrypted_aes_key, encrypted_flow_data, initial_vector, authentication_tag } = req.body;
-
-    if (!encrypted_aes_key) {
-        console.log("Health check/ping received (unencrypted)");
-        return res.status(200).send("OK");
-    }
+    if (!encrypted_aes_key) return res.status(200).send("OK");
 
     try {
-        // Decryption Logic
         const aesKey = crypto.privateDecrypt({
             key: formattedKey,
             padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
@@ -43,24 +38,18 @@ app.post("/", async (req, res) => {
         decipher.setAuthTag(authentication_tag ? Buffer.from(authentication_tag, "base64") : flowDataBuffer.slice(-16));
         let decrypted = decipher.update(authentication_tag ? flowDataBuffer : flowDataBuffer.slice(0, -16), "binary", "utf8") + decipher.final("utf8");
         
-        const flowRequest = JSON.parse(decrypted);
-        const { action, screen, data, flow_token } = flowRequest;
-
+        const { action, screen, data, flow_token } = JSON.parse(decrypted);
         console.log(`[ACTION]: ${action} | [SCREEN]: ${screen}`);
-        console.log("[INCOMING DATA]:", JSON.stringify(data, null, 2));
 
         let responsePayloadObj = { version: "3.0", data: {} };
 
-        // Helper for unique ID lists
         const getUniqueList = (arr, idKey, titleKey) => {
             const seen = new Set();
-            const list = (arr || []).filter(item => {
+            return (arr || []).filter(item => {
                 const id = item[idKey]?.toString();
                 if (id && !seen.has(id)) { seen.add(id); return true; }
                 return false;
             }).map(item => ({ id: item[idKey].toString(), title: item[titleKey] || "N/A" }));
-            console.log(`Mapped Unique List: Found ${list.length} items for ${titleKey}`);
-            return list;
         };
 
         if (action === "ping") {
@@ -68,20 +57,14 @@ app.post("/", async (req, res) => {
         } 
         else if (action === "INIT") {
             let mobile = flow_token;
-            if (!mobile || mobile.includes("builder")) {
-                console.log("🛠️ Builder Detected: Forcing test mobile 8488861504");
-                mobile = "8488861504";
-            }
+            if (!mobile || mobile.includes("builder")) mobile = "8488861504";
 
-            console.log(`Step 4a: Fetching data for Mobile: ${mobile}`);
             const [memberRes, countryRes] = await Promise.all([
                 axios.get(`https://api.abtyp.org/v0/membershipdata?MobileNo=${mobile}`, { headers: ABTYP_HEADERS }),
                 axios.get(`https://api.abtyp.org/v0/country`, { headers: ABTYP_HEADERS })
             ]);
 
             const m = memberRes.data?.Data || {}; 
-            console.log("Member Data Found:", m.MemberName || "None");
-
             responsePayloadObj.screen = "MEMBER_DETAILS";
             responsePayloadObj.data = {
                 m_name: m.MemberName || "",
@@ -93,13 +76,16 @@ app.post("/", async (req, res) => {
         }
         else if (action === "data_exchange") {
             if (screen === "MEMBER_DETAILS") {
-                console.log("➡️ Moving to Screen 2: Fetching default states for India (100)");
+                // Moving to Page 2: Fetch default states for India (100)
                 const stateRes = await axios.get(`https://api.abtyp.org/v0/state?CountryId=100`, { headers: ABTYP_HEADERS });
                 
+                let finalStateList = getUniqueList(stateRes.data?.Data, "StateId", "StateName");
+                if (finalStateList.length === 0) finalStateList = [{ id: "1", title: "Gujarat (API Fallback)" }];
+
                 responsePayloadObj.screen = "LOCATION_SELECT";
                 responsePayloadObj.data = {
-                    country_list: data.country_list || [], // Forwarding the list
-                    state_list: getUniqueList(stateRes.data?.Data, "StateId", "StateName"),
+                    country_list: data.country_list && data.country_list.length > 0 ? data.country_list : [{id: "100", title: "India"}],
+                    state_list: finalStateList,
                     parishad_list: [],
                     sel_c: "100", 
                     sel_s: "", 
@@ -111,10 +97,7 @@ app.post("/", async (req, res) => {
                 };
             } 
             else if (screen === "LOCATION_SELECT") {
-                console.log(`🔄 Exchange within LOCATION_SELECT. Type: ${data.exchange_type}`);
-                
                 if (data.exchange_type === "COUNTRY_CHANGE") {
-                    console.log(`Fetching states for Country ID: ${data.sel_c}`);
                     const stateRes = await axios.get(`https://api.abtyp.org/v0/state?CountryId=${data.sel_c}`, { headers: ABTYP_HEADERS });
                     responsePayloadObj.screen = "LOCATION_SELECT";
                     responsePayloadObj.data = {
@@ -124,8 +107,7 @@ app.post("/", async (req, res) => {
                         sel_s: "",
                         sel_p: ""
                     };
-                } else if (data.exchange_type === "STATE_CHANGE") {
-                    console.log(`Fetching parishads for State ID: ${data.sel_s}`);
+                } else {
                     const parishadRes = await axios.get(`https://api.abtyp.org/v0/parishad?StateId=${data.sel_s}`, { headers: ABTYP_HEADERS });
                     responsePayloadObj.screen = "LOCATION_SELECT";
                     responsePayloadObj.data = {
@@ -137,20 +119,15 @@ app.post("/", async (req, res) => {
             }
         }
 
-        console.log("📤 Sending Response to WhatsApp:", JSON.stringify(responsePayloadObj.data, null, 2));
-
         const cipher = crypto.createCipheriv("aes-128-gcm", aesKey, responseIv);
         const encrypted = Buffer.concat([cipher.update(JSON.stringify(responsePayloadObj), "utf8"), cipher.final()]);
-        
-        console.log("--- ✅ REQUEST COMPLETED ---");
+        console.log("📤 Sending Response:", JSON.stringify(responsePayloadObj.data));
         return res.status(200).send(Buffer.concat([encrypted, cipher.getAuthTag()]).toString("base64"));
 
     } catch (err) {
-        console.error("❌ CRITICAL ERROR:", err.message);
-        console.error("Stack Trace:", err.stack);
+        console.error("❌ Error:", err.message);
         return res.status(421).send("Key Refresh Required"); 
     }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Logging server running on port ${PORT}`));
+app.listen(process.env.PORT || 3000);
