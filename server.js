@@ -15,7 +15,7 @@ const formattedKey = privateKeyInput.includes("BEGIN PRIVATE KEY")
     ? privateKeyInput.replace(/\\n/g, "\n") 
     : `-----BEGIN PRIVATE KEY-----\n${privateKeyInput}\n-----END PRIVATE KEY-----`;
 
-app.get("/", (req, res) => res.status(200).send("🚀 ABTYP Production Server Live"));
+app.get("/", (req, res) => res.status(200).send("🚀 ABTYP Selection Sync Live"));
 
 app.post("/", async (req, res) => {
     const { encrypted_aes_key, encrypted_flow_data, initial_vector, authentication_tag } = req.body;
@@ -62,34 +62,45 @@ app.post("/", async (req, res) => {
             ]);
 
             const m = memberRes.data?.Data || {}; 
+            
+            // Fetch the specific states and parishads for the member's current location
+            const currentCountry = m.CountryId?.toString() || "100";
+            const currentState = m.StateId?.toString() || "";
+            
+            const [stateRes, parishadRes] = await Promise.all([
+                axios.get(`https://api.abtyp.org/v0/state?CountryId=${currentCountry}`, { headers: ABTYP_HEADERS }),
+                currentState ? axios.get(`https://api.abtyp.org/v0/parishad?StateId=${currentState}`, { headers: ABTYP_HEADERS }) : Promise.resolve({ data: { Data: [] } })
+            ]);
+
             responsePayloadObj.screen = "MEMBER_DETAILS";
             responsePayloadObj.data = {
                 m_name: m.MemberName || "",
                 m_father: m.FatherName || "",
                 m_dob: m.DateofBirth || "", 
                 m_email: m.EmailId || "",
-                country_list: getUniqueList(countryRes.data?.Data, "CountryId", "CountryName")
+                // Pre-fetch all lists for Screen 2
+                country_list: getUniqueList(countryRes.data?.Data, "CountryId", "CountryName"),
+                init_state_list: getUniqueList(stateRes.data?.Data, "StateId", "StateName"),
+                init_parishad_list: getUniqueList(parishadRes.data?.Data, "ParishadId", "ParishadName"),
+                init_sel_c: currentCountry,
+                init_sel_s: currentState,
+                init_sel_p: m.ParishadId?.toString() || ""
             };
         }
         else if (action === "data_exchange") {
             if (screen === "MEMBER_DETAILS") {
-                const stateRes = await axios.get(`https://api.abtyp.org/v0/state?CountryId=100`, { headers: ABTYP_HEADERS });
-                
-                let states = getUniqueList(stateRes.data?.Data, "StateId", "StateName");
-                if (states.length === 0) states = [{id: "1", title: "Gujarat (Fallback)"}];
-
                 responsePayloadObj.screen = "LOCATION_SELECT";
                 responsePayloadObj.data = {
-                    country_list: data.country_list && data.country_list.length > 0 ? data.country_list : [{id: "100", title: "India"}, {id: "101", title: "Nepal"}],
-                    state_list: states,
-                    parishad_list: [],
-                    sel_c: "100", 
-                    sel_s: "", 
-                    sel_p: "",
-                    captured_name: data.temp_name || "",
-                    captured_father: data.temp_father || "",
-                    captured_dob: data.temp_dob || "",
-                    captured_email: data.temp_email || ""
+                    country_list: data.country_list,
+                    state_list: data.init_state_list,
+                    parishad_list: data.init_parishad_list,
+                    sel_c: data.init_sel_c,
+                    sel_s: data.init_sel_s,
+                    sel_p: data.init_sel_p,
+                    captured_name: data.temp_name,
+                    captured_father: data.temp_father,
+                    captured_dob: data.temp_dob,
+                    captured_email: data.temp_email
                 };
             } 
             else if (screen === "LOCATION_SELECT") {
@@ -103,7 +114,7 @@ app.post("/", async (req, res) => {
                         sel_s: "",
                         sel_p: ""
                     };
-                } else {
+                } else if (data.exchange_type === "STATE_CHANGE") {
                     const parishadRes = await axios.get(`https://api.abtyp.org/v0/parishad?StateId=${data.sel_s}`, { headers: ABTYP_HEADERS });
                     responsePayloadObj.screen = "LOCATION_SELECT";
                     responsePayloadObj.data = {
