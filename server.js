@@ -73,16 +73,17 @@ app.post("/", async (req, res) => {
         }
         else if (action === "data_exchange") {
             if (screen === "MEMBER_DETAILS") {
-                // Fetch States for India (100) by default when moving to Page 2
+                console.log("➡️ Processing Transition: MEMBER_DETAILS to LOCATION_SELECT");
                 const stateRes = await axios.get(`https://api.abtyp.org/v0/state?CountryId=100`, { headers: ABTYP_HEADERS });
+                
                 responsePayloadObj.screen = "LOCATION_SELECT";
                 responsePayloadObj.data = {
-                    country_list: data.country_list,
+                    country_list: data.country_list || [{id: "100", title: "India"}],
                     state_list: getUniqueList(stateRes.data?.Data, "StateId", "StateName"),
                     parishad_list: [],
-                    sel_c: "100", // Default India
-                    sel_s: null,
-                    sel_p: null,
+                    sel_c: "100", 
+                    sel_s: "", // CHANGED: null to empty string
+                    sel_p: "", // CHANGED: null to empty string
                     captured_name: data.temp_name || "",
                     captured_father: data.temp_father || "",
                     captured_dob: data.temp_dob || "",
@@ -97,8 +98,8 @@ app.post("/", async (req, res) => {
                         ...data,
                         state_list: getUniqueList(stateRes.data?.Data, "StateId", "StateName"),
                         parishad_list: [],
-                        sel_s: null,
-                        sel_p: null
+                        sel_s: "", // CHANGED: null to empty string
+                        sel_p: ""  // CHANGED: null to empty string
                     };
                 } else {
                     const parishadRes = await axios.get(`https://api.abtyp.org/v0/parishad?StateId=${data.sel_s}`, { headers: ABTYP_HEADERS });
@@ -106,7 +107,7 @@ app.post("/", async (req, res) => {
                     responsePayloadObj.data = {
                         ...data,
                         parishad_list: getUniqueList(parishadRes.data?.Data, "ParishadId", "ParishadName"),
-                        sel_p: null
+                        sel_p: "" // CHANGED: null to empty string
                     };
                 }
             }
