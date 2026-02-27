@@ -18,7 +18,6 @@ const formattedKey = privateKeyInput.includes("BEGIN PRIVATE KEY")
 app.get("/", (req, res) => res.status(200).send("🚀 ABTYP Production Server Live"));
 
 app.post("/", async (req, res) => {
-    console.log("\n--- 📥 NEW REQUEST ---");
     const { encrypted_aes_key, encrypted_flow_data, initial_vector, authentication_tag } = req.body;
     if (!encrypted_aes_key) return res.status(200).send("OK");
 
@@ -39,8 +38,6 @@ app.post("/", async (req, res) => {
         let decrypted = decipher.update(authentication_tag ? flowDataBuffer : flowDataBuffer.slice(0, -16), "binary", "utf8") + decipher.final("utf8");
         
         const { action, screen, data, flow_token } = JSON.parse(decrypted);
-        console.log(`[ACTION]: ${action} | [SCREEN]: ${screen}`);
-        
         let responsePayloadObj = { version: "3.0", data: {} };
 
         const getUniqueList = (arr, idKey, titleKey) => {
@@ -78,17 +75,12 @@ app.post("/", async (req, res) => {
             if (screen === "MEMBER_DETAILS") {
                 const stateRes = await axios.get(`https://api.abtyp.org/v0/state?CountryId=100`, { headers: ABTYP_HEADERS });
                 
-                // RESCUE: If API or Screen 1 fails to provide countries, provide defaults
-                let countries = data.country_list && data.country_list.length > 0 
-                    ? data.country_list 
-                    : [{id: "100", title: "India"}, {id: "101", title: "Nepal"}, {id: "102", title: "USA"}];
-
                 let states = getUniqueList(stateRes.data?.Data, "StateId", "StateName");
-                if (states.length === 0) states = [{id: "1", title: "Gujarat (API Fallback)"}];
+                if (states.length === 0) states = [{id: "1", title: "Gujarat (Fallback)"}];
 
                 responsePayloadObj.screen = "LOCATION_SELECT";
                 responsePayloadObj.data = {
-                    country_list: countries,
+                    country_list: data.country_list && data.country_list.length > 0 ? data.country_list : [{id: "100", title: "India"}, {id: "101", title: "Nepal"}],
                     state_list: states,
                     parishad_list: [],
                     sel_c: "100", 
