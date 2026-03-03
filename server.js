@@ -198,21 +198,31 @@ app.post("/", async (req, res) => {
 
             else if (data.submit_type === "GO_TO_CONFIRM") {
 
-                const parishadRes = await axios.get(
-                    `https://api.abtyp.org/v0/parishad?StateId=${data.f_state}`,
-                    { headers: ABTYP_HEADERS }
-                );
+    const parishadRes = await axios.get(
+        `https://api.abtyp.org/v0/parishad?StateId=${data.f_state}`,
+        { headers: ABTYP_HEADERS }
+    );
 
-                const selected = (parishadRes.data?.Data || [])
-                    .find(p => p.Id.toString() === data.f_parishad_id);
+    const selected = (parishadRes.data?.Data || [])
+        .find(p => p.Id.toString() === data.f_parishad_id);
 
-                responsePayloadObj.screen = "CONFIRMATION";
-                responsePayloadObj.data = {
-                    ...data,
-                    f_parishad_name: selected?.Name || "",
-                    f_parishad_code: selected?.ParshadCode || ""
-                };
-            }
+    responsePayloadObj.screen = "CONFIRMATION";
+    responsePayloadObj.data = {
+        f_name: data.f_name,
+        f_father: data.f_father,
+        f_dob: data.f_dob,
+        f_email: data.f_email,
+        f_country: data.f_country,
+        f_state: data.f_state,
+        f_parishad_id: data.f_parishad_id,
+        f_parishad_name: selected?.Name || "",
+        f_parishad_code: selected?.ParshadCode || "",
+        member_id: data.member_id,
+        mobile_no: data.mobile_no
+    };
+
+    console.log("CONFIRM DATA SENT:", responsePayloadObj.data);
+}
 
             /* ===== FINAL SUBMIT ===== */
 
