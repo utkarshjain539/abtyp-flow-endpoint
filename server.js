@@ -62,11 +62,10 @@ app.post("/", async (req, res) => {
             ]);
 
             const m = memberRes.data?.Data || {}; 
-            
-            // Fetch the specific states and parishads for the member's current location
             const currentCountry = m.CountryId?.toString() || "100";
             const currentState = m.StateId?.toString() || "";
             
+            // Fetch relevant lists based on member's existing data
             const [stateRes, parishadRes] = await Promise.all([
                 axios.get(`https://api.abtyp.org/v0/state?CountryId=${currentCountry}`, { headers: ABTYP_HEADERS }),
                 currentState ? axios.get(`https://api.abtyp.org/v0/parishad?StateId=${currentState}`, { headers: ABTYP_HEADERS }) : Promise.resolve({ data: { Data: [] } })
@@ -78,8 +77,8 @@ app.post("/", async (req, res) => {
                 m_father: m.FatherName || "",
                 m_dob: m.DateofBirth || "", 
                 m_email: m.EmailId || "",
-                // Pre-fetch all lists for Screen 2
                 country_list: getUniqueList(countryRes.data?.Data, "CountryId", "CountryName"),
+                // Pre-fill location lists for the next screen
                 init_state_list: getUniqueList(stateRes.data?.Data, "StateId", "StateName"),
                 init_parishad_list: getUniqueList(parishadRes.data?.Data, "ParishadId", "ParishadName"),
                 init_sel_c: currentCountry,
