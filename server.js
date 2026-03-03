@@ -103,10 +103,9 @@ app.post("/", async (req, res) => {
         console.log("➡️ Screen:", screen);
 
         let responsePayloadObj = {
-            version: "3.0",
-            screen: "",
-            data: {}
-        };
+    version: "3.0",
+    data: {}
+};
 
         /* ================= INIT ================= */
 
