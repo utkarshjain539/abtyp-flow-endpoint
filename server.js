@@ -65,6 +65,7 @@ app.post("/", async (req, res) => {
             const currentCountry = m.CountryId?.toString() || "100";
             const currentState = m.StateId?.toString() || "";
             
+            // Initial pre-fetch to get IDs for names
             const [stateRes, parishadRes] = await Promise.all([
                 axios.get(`https://api.abtyp.org/v0/state?CountryId=${currentCountry}`, { headers: ABTYP_HEADERS }),
                 currentState ? axios.get(`https://api.abtyp.org/v0/parishad?StateId=${currentState}`, { headers: ABTYP_HEADERS }) : Promise.resolve({ data: { Data: [] } })
@@ -86,7 +87,7 @@ app.post("/", async (req, res) => {
         }
         else if (action === "data_exchange") {
             if (screen === "MEMBER_DETAILS") {
-                // Ensure country_list is passed forward correctly
+                // Moving to Screen 2 using the IDs to fill the dropdown names
                 responsePayloadObj.screen = "LOCATION_SELECT";
                 responsePayloadObj.data = {
                     country_list: data.country_list || [],
@@ -102,6 +103,7 @@ app.post("/", async (req, res) => {
                 };
             } 
             else if (screen === "LOCATION_SELECT") {
+                // Cascading logic when user manually changes selections
                 if (data.exchange_type === "COUNTRY_CHANGE") {
                     const stateRes = await axios.get(`https://api.abtyp.org/v0/state?CountryId=${data.sel_c}`, { headers: ABTYP_HEADERS });
                     responsePayloadObj.screen = "LOCATION_SELECT";
