@@ -86,10 +86,15 @@ app.post("/", async (req, res) => {
             };
         }
         else if (action === "data_exchange") {
+
     if (screen === "MEMBER_DETAILS") {
 
         const countryId = data.init_sel_c || "100";
         const stateId = data.init_sel_s || "";
+
+        console.log("👉 Moving to LOCATION_SELECT");
+        console.log("Selected Country:", countryId);
+        console.log("Selected State:", stateId);
 
         const [countryRes, stateRes, parishadRes] = await Promise.all([
             axios.get(`https://api.abtyp.org/v0/country`, { headers: ABTYP_HEADERS }),
@@ -99,11 +104,16 @@ app.post("/", async (req, res) => {
                 : Promise.resolve({ data: { Data: [] } })
         ]);
 
+        // 🔍 DEBUG LOGS (CHECK RENDER LOGS AFTER DEPLOY)
+        console.log("Country API Response:", JSON.stringify(countryRes.data));
+        console.log("State API Response:", JSON.stringify(stateRes.data));
+        console.log("Parishad API Response:", JSON.stringify(parishadRes.data));
+
         responsePayloadObj.screen = "LOCATION_SELECT";
         responsePayloadObj.data = {
-            country_list: getUniqueList(countryRes.data?.Data, "CountryId", "CountryName"),
-            state_list: getUniqueList(stateRes.data?.Data, "StateId", "StateName"),
-            parishad_list: getUniqueList(parishadRes.data?.Data, "ParishadId", "ParishadName"),
+            country_list: getUniqueList(countryRes.data?.Data, "Id", "Name"),
+            state_list: getUniqueList(stateRes.data?.Data, "Id", "Name"),
+            parishad_list: getUniqueList(parishadRes.data?.Data, "Id", "Name"),
 
             sel_c: countryId,
             sel_s: stateId,
@@ -114,8 +124,48 @@ app.post("/", async (req, res) => {
             captured_dob: data.temp_dob,
             captured_email: data.temp_email
         };
+
+        console.log("Final Payload Sent To Flow:", JSON.stringify(responsePayloadObj.data));
     }
+
+    else if (screen === "LOCATION_SELECT") {
+
+        if (data.exchange_type === "COUNTRY_CHANGE") {
+
+            const stateRes = await axios.get(
+                `https://api.abtyp.org/v0/state?CountryId=${data.sel_c}`,
+                { headers: ABTYP_HEADERS }
+            );
+
+            console.log("Country Changed → New States:", JSON.stringify(stateRes.data));
+
+            responsePayloadObj.screen = "LOCATION_SELECT";
+            responsePayloadObj.data = {
+                ...data,
+                state_list: getUniqueList(stateRes.data?.Data, "Id", "Name"),
+                parishad_list: [],
+                sel_s: "",
+                sel_p: ""
+            };
+
+        } else if (data.exchange_type === "STATE_CHANGE") {
+
+            const parishadRes = await axios.get(
+                `https://api.abtyp.org/v0/parishad?StateId=${data.sel_s}`,
+                { headers: ABTYP_HEADERS }
+            );
+
+            console.log("State Changed → New Parishads:", JSON.stringify(parishadRes.data));
+
+            responsePayloadObj.screen = "LOCATION_SELECT";
+            responsePayloadObj.data = {
+                ...data,
+                parishad_list: getUniqueList(parishadRes.data?.Data, "Id", "Name"),
+                sel_p: ""
+            };
         }
+    }
+}
         const cipher = crypto.createCipheriv("aes-128-gcm", aesKey, responseIv);
         const encrypted = Buffer.concat([cipher.update(JSON.stringify(responsePayloadObj), "utf8"), cipher.final()]);
         return res.status(200).send(Buffer.concat([encrypted, cipher.getAuthTag()]).toString("base64"));
