@@ -133,13 +133,17 @@ app.post("/", async (req, res) => {
 
             responsePayloadObj.screen = "MEMBER_DETAILS";
             responsePayloadObj.data = {
-                m_name: m.MemberName || "",
-                m_father: m.FatherName || "",
-                m_dob: m.DateofBirth || "",
-                m_email: m.EmailId || "",
-                member_id: m.MemberId?.toString() || "",
-                mobile_no: mobile
-            };
+    m_name: m.MemberName || "",
+    m_father: m.FatherName || "",
+    m_dob: m.DateofBirth || "",
+    m_email: m.EmailId || "",
+    member_id: m.MemberId?.toString() || "",
+    mobile_no: mobile,
+
+    member_country: m.CountryId?.toString() || "100",
+    member_state: m.StateId?.toString() || "",
+    member_parishad: m.ParishadId?.toString() || ""
+};
         }
 
         /* ============================= */
@@ -152,24 +156,39 @@ app.post("/", async (req, res) => {
 
             if (screen === "MEMBER_DETAILS") {
 
-                const countryRes = await axios.get(`https://api.abtyp.org/v0/country`, { headers: ABTYP_HEADERS });
+    const countryId = data.member_country || "100";
+    const stateId = data.member_state || "";
+    const parishadId = data.member_parishad || "";
 
-                responsePayloadObj.screen = "LOCATION_SELECT";
-                responsePayloadObj.data = {
-                    country_list: mapList(countryRes.data?.Data),
-                    state_list: [],
-                    parishad_list: [],
-                    sel_c: "",
-                    sel_s: "",
-                    sel_p: "",
-                    captured_name: data.temp_name,
-                    captured_father: data.temp_father,
-                    captured_dob: data.temp_dob,
-                    captured_email: data.temp_email,
-                    member_id: data.member_id,
-                    mobile_no: data.mobile_no
-                };
-            }
+    const [countryRes, stateRes, parishadRes] = await Promise.all([
+        axios.get(`https://api.abtyp.org/v0/country`, { headers: ABTYP_HEADERS }),
+        countryId
+            ? axios.get(`https://api.abtyp.org/v0/state?CountryId=${countryId}`, { headers: ABTYP_HEADERS })
+            : Promise.resolve({ data: { Data: [] } }),
+        stateId
+            ? axios.get(`https://api.abtyp.org/v0/parishad?StateId=${stateId}`, { headers: ABTYP_HEADERS })
+            : Promise.resolve({ data: { Data: [] } })
+    ]);
+
+    responsePayloadObj.screen = "LOCATION_SELECT";
+    responsePayloadObj.data = {
+        country_list: mapList(countryRes.data?.Data),
+        state_list: mapList(stateRes.data?.Data),
+        parishad_list: mapList(parishadRes.data?.Data),
+
+        sel_c: countryId,
+        sel_s: stateId,
+        sel_p: parishadId,
+
+        captured_name: data.temp_name,
+        captured_father: data.temp_father,
+        captured_dob: data.temp_dob,
+        captured_email: data.temp_email,
+
+        member_id: data.member_id,
+        mobile_no: data.mobile_no
+    };
+}
 
             /* ---------- COUNTRY CHANGE ---------- */
 
