@@ -65,7 +65,7 @@ app.post("/", async (req, res) => {
                 ? Buffer.from(authentication_tag, "base64")
                 : flowBuffer.slice(-16)
         );
-
+console.log("Encrypted key length:", encrypted_aes_key?.length);
         const decrypted =
             decipher.update(
                 authentication_tag ? flowBuffer : flowBuffer.slice(0, -16),
@@ -137,7 +137,7 @@ else if (action === "navigate" && screen === "LOCATION_SELECT") {
         f_state: data.f_state,
         f_parishad_id: data.f_parishad_id,
         f_parishad_name: selected?.Name || "",
-        f_parishad_code: selected?.ParshadCode || "",
+        f_parishad_code: selected?.ParishadCode || "",
         member_id: data.member_id,
         mobile_no: data.mobile_no
     };
@@ -201,7 +201,7 @@ else if (data.submit_type === "GO_TO_CONFIRM") {
         f_state: data.f_state,
         f_parishad_id: data.f_parishad_id,
         f_parishad_name: selected?.Name || "",
-        f_parishad_code: selected?.ParshadCode || "",
+        f_parishad_code: selected?.ParishadCode || "",
         member_id: data.member_id,
         mobile_no: data.mobile_no
     };
