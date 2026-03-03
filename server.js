@@ -63,7 +63,7 @@ app.post("/", async (req, res) => {
             oaepHash: "sha256"
         }, Buffer.from(encrypted_aes_key, "base64"));
 
-        /* ===== AES DECRYPT ===== */
+        /* ===== AES IV PREP ===== */
 
         const requestIv = Buffer.from(initial_vector, "base64");
         const responseIv = Buffer.alloc(requestIv.length);
@@ -71,6 +71,8 @@ app.post("/", async (req, res) => {
         for (let i = 0; i < requestIv.length; i++) {
             responseIv[i] = ~requestIv[i];
         }
+
+        /* ===== AES DECRYPT ===== */
 
         const decipher = crypto.createDecipheriv("aes-128-gcm", aesKey, requestIv);
         const flowBuffer = Buffer.from(encrypted_flow_data, "base64");
@@ -91,6 +93,36 @@ app.post("/", async (req, res) => {
         const { action, screen, data, flow_token } = JSON.parse(decrypted);
 
         console.log("➡️ Action:", action, "| Screen:", screen);
+
+        /* ===================================================== */
+        /* ====================== PING ========================= */
+        /* ===================================================== */
+
+        if (action === "ping") {
+
+            console.log("🏓 Ping Received");
+
+            const pingResponse = {
+                data: {
+                    status: "active"
+                }
+            };
+
+            const cipher = crypto.createCipheriv("aes-128-gcm", aesKey, responseIv);
+
+            const encrypted = Buffer.concat([
+                cipher.update(JSON.stringify(pingResponse), "utf8"),
+                cipher.final()
+            ]);
+
+            return res.status(200).send(
+                Buffer.concat([encrypted, cipher.getAuthTag()]).toString("base64")
+            );
+        }
+
+        /* ===================================================== */
+        /* ================= NORMAL FLOW ======================= */
+        /* ===================================================== */
 
         let responsePayloadObj = {
             version: "3.0",
@@ -135,7 +167,7 @@ app.post("/", async (req, res) => {
 
         else if (action === "data_exchange") {
 
-            /* ===== MEMBER_DETAILS → LOCATION_SELECT ===== */
+            /* MEMBER_DETAILS → LOCATION_SELECT */
 
             if (screen === "MEMBER_DETAILS") {
 
@@ -176,7 +208,7 @@ app.post("/", async (req, res) => {
                 };
             }
 
-            /* ===== GO TO CONFIRM ===== */
+            /* GO TO CONFIRM */
 
             else if (data.submit_type === "GO_TO_CONFIRM") {
 
@@ -196,7 +228,7 @@ app.post("/", async (req, res) => {
                 };
             }
 
-            /* ===== FINAL SUBMIT ===== */
+            /* FINAL SUBMIT */
 
             else if (data.submit_type === "FINAL_SUBMIT") {
 
@@ -239,7 +271,6 @@ app.post("/", async (req, res) => {
         /* ===== SAFETY CHECK ===== */
 
         if (!responsePayloadObj.screen) {
-            console.error("⚠️ Screen missing. Defaulting to MEMBER_DETAILS");
             responsePayloadObj.screen = "MEMBER_DETAILS";
         }
 
