@@ -113,7 +113,12 @@ app.post("/", async (req, res) => {
         responsePayloadObj.data = {
             country_list: getUniqueList(countryRes.data?.Data, "Id", "Name"),
             state_list: getUniqueList(stateRes.data?.Data, "Id", "Name"),
-            parishad_list: getUniqueList(parishadRes.data?.Data, "Id", "Name"),
+            
+            (parishadRes.data?.Data || []).map(item => ({
+    id: item.Id.toString(),
+    title: item.Name,
+    parshad_code: item.ParshadCode || ""
+})),
 
             sel_c: countryId,
             sel_s: stateId,
