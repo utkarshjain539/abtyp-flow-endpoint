@@ -19,7 +19,6 @@ const formattedKey = privateKeyInput.includes("BEGIN PRIVATE KEY")
     : `-----BEGIN PRIVATE KEY-----\n${privateKeyInput}\n-----END PRIVATE KEY-----`;
 
 console.log("🚀 Server Booted");
-console.log("🔐 Private Key Header:", formattedKey.split("\n")[0]);
 
 /* ================= HELPERS ================= */
 
@@ -32,6 +31,7 @@ const mapList = (arr) =>
 function calculateAge(dob) {
     if (!dob) return 18;
     const parts = dob.split("/");
+    if (parts.length !== 3) return 18;
     const birthDate = new Date(parts[2], parts[1] - 1, parts[0]);
     const diff = Date.now() - birthDate.getTime();
     return new Date(diff).getUTCFullYear() - 1970;
@@ -47,14 +47,9 @@ app.get("/", (req, res) => {
 
 app.post("/", async (req, res) => {
 
-    console.log("\n===============================");
-    console.log("📩 Incoming Flow Request");
-    console.log("===============================");
-
     const { encrypted_aes_key, encrypted_flow_data, initial_vector, authentication_tag } = req.body;
 
     if (!encrypted_aes_key) {
-        console.log("⚠️ No encrypted key");
         return res.status(200).send("OK");
     }
 
@@ -68,13 +63,11 @@ app.post("/", async (req, res) => {
             oaepHash: "sha256"
         }, Buffer.from(encrypted_aes_key, "base64"));
 
-        console.log("✅ RSA Decryption Successful");
-
         /* ===== AES DECRYPT ===== */
 
         const requestIv = Buffer.from(initial_vector, "base64");
-
         const responseIv = Buffer.alloc(requestIv.length);
+
         for (let i = 0; i < requestIv.length; i++) {
             responseIv[i] = ~requestIv[i];
         }
@@ -95,17 +88,14 @@ app.post("/", async (req, res) => {
                 "utf8"
             ) + decipher.final("utf8");
 
-        console.log("✅ AES Decryption Successful");
-
         const { action, screen, data, flow_token } = JSON.parse(decrypted);
 
-        console.log("➡️ Action:", action);
-        console.log("➡️ Screen:", screen);
+        console.log("➡️ Action:", action, "| Screen:", screen);
 
         let responsePayloadObj = {
-    version: "3.0",
-    data: {}
-};
+            version: "3.0",
+            data: {}
+        };
 
         /* ================= INIT ================= */
 
@@ -115,8 +105,6 @@ app.post("/", async (req, res) => {
             if (!mobile || mobile.includes("builder")) {
                 mobile = "8488861504";
             }
-
-            console.log("📞 INIT for Mobile:", mobile);
 
             const memberRes = await axios.get(
                 `https://api.abtyp.org/v0/membershipdata?MobileNo=${mobile}`,
@@ -146,6 +134,8 @@ app.post("/", async (req, res) => {
         /* ================= DATA EXCHANGE ================= */
 
         else if (action === "data_exchange") {
+
+            /* ===== MEMBER_DETAILS → LOCATION_SELECT ===== */
 
             if (screen === "MEMBER_DETAILS") {
 
@@ -186,6 +176,28 @@ app.post("/", async (req, res) => {
                 };
             }
 
+            /* ===== GO TO CONFIRM ===== */
+
+            else if (data.submit_type === "GO_TO_CONFIRM") {
+
+                const parishadRes = await axios.get(
+                    `https://api.abtyp.org/v0/parishad?StateId=${data.f_state}`,
+                    { headers: ABTYP_HEADERS }
+                );
+
+                const selected = (parishadRes.data?.Data || [])
+                    .find(p => p.Id.toString() === data.f_parishad_id);
+
+                responsePayloadObj.screen = "CONFIRMATION";
+                responsePayloadObj.data = {
+                    ...data,
+                    f_parishad_name: selected?.Name || "",
+                    f_parishad_code: selected?.ParishadCode || ""
+                };
+            }
+
+            /* ===== FINAL SUBMIT ===== */
+
             else if (data.submit_type === "FINAL_SUBMIT") {
 
                 const updatePayload = {
@@ -210,13 +222,11 @@ app.post("/", async (req, res) => {
 
                 console.log("🚀 Updating Member:", updatePayload);
 
-                const updateRes = await axios.post(
+                await axios.post(
                     "https://api.abtyp.org/v0/update-membership-data",
                     updatePayload,
                     { headers: ABTYP_HEADERS }
                 );
-
-                console.log("✅ Update API Response:", updateRes.data);
 
                 responsePayloadObj.screen = "CONFIRMATION";
                 responsePayloadObj.data = {
@@ -225,6 +235,19 @@ app.post("/", async (req, res) => {
                 };
             }
         }
+
+        /* ===== SAFETY CHECK ===== */
+
+        if (!responsePayloadObj.screen) {
+            console.error("⚠️ Screen missing. Defaulting to MEMBER_DETAILS");
+            responsePayloadObj.screen = "MEMBER_DETAILS";
+        }
+
+        if (!responsePayloadObj.data) {
+            responsePayloadObj.data = {};
+        }
+
+        console.log("📤 Final Response:", responsePayloadObj);
 
         /* ===== ENCRYPT RESPONSE ===== */
 
@@ -242,8 +265,7 @@ app.post("/", async (req, res) => {
     } catch (err) {
 
         if (err.response) {
-            console.error("❌ API ERROR STATUS:", err.response.status);
-            console.error("❌ API ERROR FULL:", JSON.stringify(err.response.data, null, 2));
+            console.error("❌ API ERROR:", JSON.stringify(err.response.data, null, 2));
         } else {
             console.error("❌ ERROR:", err.message);
         }
@@ -251,6 +273,8 @@ app.post("/", async (req, res) => {
         return res.status(421).send("Key Refresh Required");
     }
 });
+
+/* ================= START ================= */
 
 app.listen(process.env.PORT || 3000, () => {
     console.log("🚀 Server Running");
