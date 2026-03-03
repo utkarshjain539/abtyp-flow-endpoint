@@ -65,7 +65,6 @@ app.post("/", async (req, res) => {
             const currentCountry = m.CountryId?.toString() || "100";
             const currentState = m.StateId?.toString() || "";
             
-            // Fetch relevant lists based on member's existing data
             const [stateRes, parishadRes] = await Promise.all([
                 axios.get(`https://api.abtyp.org/v0/state?CountryId=${currentCountry}`, { headers: ABTYP_HEADERS }),
                 currentState ? axios.get(`https://api.abtyp.org/v0/parishad?StateId=${currentState}`, { headers: ABTYP_HEADERS }) : Promise.resolve({ data: { Data: [] } })
@@ -78,7 +77,6 @@ app.post("/", async (req, res) => {
                 m_dob: m.DateofBirth || "", 
                 m_email: m.EmailId || "",
                 country_list: getUniqueList(countryRes.data?.Data, "CountryId", "CountryName"),
-                // Pre-fill location lists for the next screen
                 init_state_list: getUniqueList(stateRes.data?.Data, "StateId", "StateName"),
                 init_parishad_list: getUniqueList(parishadRes.data?.Data, "ParishadId", "ParishadName"),
                 init_sel_c: currentCountry,
@@ -88,20 +86,12 @@ app.post("/", async (req, res) => {
         }
         else if (action === "data_exchange") {
             if (screen === "MEMBER_DETAILS") {
-                console.log("➡️ Pre-loading Screen 2 Lists...");
-
-                // Get lists based on the IDs passed from Screen 1
-                const [stateRes, parishadRes] = await Promise.all([
-                    axios.get(`https://api.abtyp.org/v0/state?CountryId=${data.init_sel_c}`, { headers: ABTYP_HEADERS }),
-                    axios.get(`https://api.abtyp.org/v0/parishad?StateId=${data.init_sel_s}`, { headers: ABTYP_HEADERS })
-                ]);
-
+                // Moving to Screen 2
                 responsePayloadObj.screen = "LOCATION_SELECT";
                 responsePayloadObj.data = {
-                    // Populate the empty arrays from your logs
-                    country_list: data.country_list || [], 
-                    state_list: getUniqueList(stateRes.data?.Data, "StateId", "StateName"),
-                    parishad_list: getUniqueList(parishadRes.data?.Data, "ParishadId", "ParishadName"),
+                    country_list: data.country_list || [], // Pass the list found in INIT
+                    state_list: data.init_state_list || [],
+                    parishad_list: data.init_parishad_list || [],
                     sel_c: data.init_sel_c || "100",
                     sel_s: data.init_sel_s || "",
                     sel_p: data.init_sel_p || "",
@@ -110,8 +100,31 @@ app.post("/", async (req, res) => {
                     captured_dob: data.temp_dob,
                     captured_email: data.temp_email
                 };
+            } 
+            else if (screen === "LOCATION_SELECT") {
+                // Handle live updates on Screen 2
+                if (data.exchange_type === "COUNTRY_CHANGE") {
+                    const stateRes = await axios.get(`https://api.abtyp.org/v0/state?CountryId=${data.sel_c}`, { headers: ABTYP_HEADERS });
+                    responsePayloadObj.screen = "LOCATION_SELECT";
+                    responsePayloadObj.data = {
+                        ...data,
+                        state_list: getUniqueList(stateRes.data?.Data, "StateId", "StateName"),
+                        parishad_list: [],
+                        sel_s: "",
+                        sel_p: ""
+                    };
+                } else if (data.exchange_type === "STATE_CHANGE") {
+                    const parishadRes = await axios.get(`https://api.abtyp.org/v0/parishad?StateId=${data.sel_s}`, { headers: ABTYP_HEADERS });
+                    responsePayloadObj.screen = "LOCATION_SELECT";
+                    responsePayloadObj.data = {
+                        ...data,
+                        parishad_list: getUniqueList(parishadRes.data?.Data, "ParishadId", "ParishadName"),
+                        sel_p: ""
+                    };
+                }
             }
         }
+
         const cipher = crypto.createCipheriv("aes-128-gcm", aesKey, responseIv);
         const encrypted = Buffer.concat([cipher.update(JSON.stringify(responsePayloadObj), "utf8"), cipher.final()]);
         return res.status(200).send(Buffer.concat([encrypted, cipher.getAuthTag()]).toString("base64"));
