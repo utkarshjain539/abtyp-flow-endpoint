@@ -5,9 +5,9 @@ const axios = require("axios");
 const app = express();
 app.use(express.json());
 
-/* ================================
-   ENV + KEY SETUP
-================================ */
+/* ===================================
+   CONFIG
+=================================== */
 
 const ABTYP_HEADERS = {
     "api-Key": "ABTYP_API_SECRET_KEY_@ABTYP2023#@763^%ggjhg%",
@@ -27,26 +27,25 @@ app.get("/", (req, res) => {
     res.status(200).send("🚀 ABTYP Flow Server Running");
 });
 
+/* ===================================
+   MAIN FLOW ENDPOINT
+=================================== */
+
 app.post("/", async (req, res) => {
 
     console.log("\n===============================");
-    console.log("📩 Incoming Request Received");
+    console.log("📩 Incoming Request");
     console.log("===============================");
 
     const { encrypted_aes_key, encrypted_flow_data, initial_vector, authentication_tag } = req.body;
 
     if (!encrypted_aes_key) {
-        console.log("⚠️ No encrypted key found");
         return res.status(200).send("OK");
     }
 
-    console.log("🔑 Encrypted AES Key Length:", encrypted_aes_key?.length);
-
     let aesKey;
 
-    /* ================================
-       RSA DECRYPTION
-    ================================= */
+    /* ================= RSA DECRYPT ================= */
 
     try {
         aesKey = crypto.privateDecrypt(
@@ -58,23 +57,21 @@ app.post("/", async (req, res) => {
             Buffer.from(encrypted_aes_key, "base64")
         );
 
-        console.log("✅ RSA Decryption SUCCESS");
+        console.log("✅ RSA Decryption OK");
 
-    } catch (decryptError) {
-        console.error("❌ RSA DECRYPTION FAILED:", decryptError.message);
+    } catch (err) {
+        console.error("❌ RSA Decryption Failed:", err.message);
         return res.status(421).send("Key Refresh Required");
     }
 
-    /* ================================
-       AES DECRYPTION
-    ================================= */
+    /* ================= AES DECRYPT ================= */
 
     let decrypted;
 
     try {
         const requestIv = Buffer.from(initial_vector, "base64");
-
         const decipher = crypto.createDecipheriv("aes-128-gcm", aesKey, requestIv);
+
         const flowDataBuffer = Buffer.from(encrypted_flow_data, "base64");
 
         decipher.setAuthTag(
@@ -92,10 +89,10 @@ app.post("/", async (req, res) => {
                 "utf8"
             ) + decipher.final("utf8");
 
-        console.log("✅ AES Decryption SUCCESS");
+        console.log("✅ AES Decryption OK");
 
-    } catch (aesError) {
-        console.error("❌ AES DECRYPTION FAILED:", aesError.message);
+    } catch (err) {
+        console.error("❌ AES Decryption Failed:", err.message);
         return res.status(421).send("Key Refresh Required");
     }
 
@@ -109,31 +106,29 @@ app.post("/", async (req, res) => {
 
     const getUniqueList = (arr, idKey, titleKey) => {
         const seen = new Set();
-        return (arr || []).filter(item => {
-            const id = item[idKey]?.toString();
-            if (id && !seen.has(id)) {
-                seen.add(id);
-                return true;
-            }
-            return false;
-        }).map(item => ({
-            id: item[idKey].toString(),
-            title: item[titleKey] || "N/A"
-        }));
+        return (arr || [])
+            .filter(item => {
+                const id = item[idKey]?.toString();
+                if (id && !seen.has(id)) {
+                    seen.add(id);
+                    return true;
+                }
+                return false;
+            })
+            .map(item => ({
+                id: item[idKey].toString(),
+                title: item[titleKey] || "N/A"
+            }));
     };
 
     try {
 
-        /* ================================
-           INIT
-        ================================= */
+        /* ================= INIT ================= */
 
         if (action === "INIT") {
 
             let mobile = flow_token;
             if (!mobile || mobile.includes("builder")) mobile = "8488861504";
-
-            console.log("📞 Fetching member for mobile:", mobile);
 
             const [memberRes, countryRes] = await Promise.all([
                 axios.get(`https://api.abtyp.org/v0/membershipdata?MobileNo=${mobile}`, { headers: ABTYP_HEADERS }),
@@ -163,23 +158,26 @@ app.post("/", async (req, res) => {
                 mobile_no: mobile,
                 member_country: currentCountry,
                 member_state: currentState,
-                member_parishad: currentParishad
+                member_parishad: currentParishad,
+                country_list: getUniqueList(countryRes.data?.Data, "CountryId", "CountryName"),
+                init_state_list: getUniqueList(stateRes.data?.Data, "StateId", "StateName"),
+                init_parishad_list: getUniqueList(parishadRes.data?.Data, "ParishadId", "ParishadName")
             };
         }
 
-        /* ================================
-           DATA EXCHANGE
-        ================================= */
+        /* ================= DATA EXCHANGE ================= */
 
         else if (action === "data_exchange") {
+
+            /* MEMBER_DETAILS → LOCATION_SELECT */
 
             if (screen === "MEMBER_DETAILS") {
 
                 responsePayloadObj.screen = "LOCATION_SELECT";
                 responsePayloadObj.data = {
-                    country_list: [],
-                    state_list: [],
-                    parishad_list: [],
+                    country_list: data.country_list || [],
+                    state_list: data.init_state_list || [],
+                    parishad_list: data.init_parishad_list || [],
                     sel_c: data.member_country,
                     sel_s: data.member_state,
                     sel_p: data.member_parishad,
@@ -192,9 +190,9 @@ app.post("/", async (req, res) => {
                 };
             }
 
-            else if (data.submit_type === "GO_TO_CONFIRM") {
+            /* GO TO CONFIRMATION */
 
-                console.log("🔄 Preparing Confirmation Screen");
+            else if (data.submit_type === "GO_TO_CONFIRM") {
 
                 const parishadRes = await axios.get(
                     `https://api.abtyp.org/v0/parishad?StateId=${data.f_state}`,
@@ -203,8 +201,6 @@ app.post("/", async (req, res) => {
 
                 const selected = (parishadRes.data?.Data || [])
                     .find(p => p.Id.toString() === data.f_parishad_id);
-
-                console.log("Selected Parishad:", selected);
 
                 responsePayloadObj.screen = "CONFIRMATION";
                 responsePayloadObj.data = {
@@ -222,9 +218,9 @@ app.post("/", async (req, res) => {
                 };
             }
 
-            else if (data.submit_type === "FINAL_SUBMIT") {
+            /* FINAL SUBMIT */
 
-                console.log("🟢 FINAL SUBMIT TRIGGERED");
+            else if (data.submit_type === "FINAL_SUBMIT") {
 
                 const updatePayload = {
                     MemberId: data.member_id,
@@ -247,11 +243,10 @@ app.post("/", async (req, res) => {
                         { headers: ABTYP_HEADERS }
                     );
 
-                    console.log("✅ API SUCCESS:", updateRes.data);
+                    console.log("✅ Update Success:", updateRes.data);
 
                 } catch (apiError) {
-                    console.error("❌ API ERROR STATUS:", apiError.response?.status);
-                    console.error("❌ API ERROR DATA:", apiError.response?.data);
+                    console.error("❌ Update API Error:", apiError.response?.data || apiError.message);
                 }
 
                 responsePayloadObj.screen = "CONFIRMATION";
@@ -259,13 +254,11 @@ app.post("/", async (req, res) => {
             }
         }
 
-    } catch (logicError) {
-        console.error("❌ FLOW LOGIC ERROR:", logicError.message);
+    } catch (err) {
+        console.error("❌ Flow Logic Error:", err.message);
     }
 
-    /* ================================
-       ENCRYPT RESPONSE
-    ================================= */
+    /* ================= ENCRYPT RESPONSE ================= */
 
     const requestIv = Buffer.from(initial_vector, "base64");
     const responseIv = Buffer.alloc(requestIv.length);
