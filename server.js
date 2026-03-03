@@ -24,12 +24,8 @@ console.log("🚀 Server Started");
 console.log("🔐 Private Key Header:", formattedKey.split("\n")[0]);
 
 app.get("/", (req, res) => {
-    res.status(200).send("ABTYP Flow Encryption Server Running");
+    res.status(200).send("🚀 ABTYP Flow Server Running");
 });
-
-/* ================================
-   MAIN FLOW ENDPOINT
-================================ */
 
 app.post("/", async (req, res) => {
 
@@ -40,7 +36,7 @@ app.post("/", async (req, res) => {
     const { encrypted_aes_key, encrypted_flow_data, initial_vector, authentication_tag } = req.body;
 
     if (!encrypted_aes_key) {
-        console.log("⚠️ No encrypted key found (ping/test)");
+        console.log("⚠️ No encrypted key found");
         return res.status(200).send("OK");
     }
 
@@ -65,10 +61,7 @@ app.post("/", async (req, res) => {
         console.log("✅ RSA Decryption SUCCESS");
 
     } catch (decryptError) {
-        console.error("❌ RSA DECRYPTION FAILED");
-        console.error("Error Message:", decryptError.message);
-        console.error("Private Key Header:", formattedKey.split("\n")[0]);
-
+        console.error("❌ RSA DECRYPTION FAILED:", decryptError.message);
         return res.status(421).send("Key Refresh Required");
     }
 
@@ -82,7 +75,6 @@ app.post("/", async (req, res) => {
         const requestIv = Buffer.from(initial_vector, "base64");
 
         const decipher = crypto.createDecipheriv("aes-128-gcm", aesKey, requestIv);
-
         const flowDataBuffer = Buffer.from(encrypted_flow_data, "base64");
 
         decipher.setAuthTag(
@@ -103,24 +95,11 @@ app.post("/", async (req, res) => {
         console.log("✅ AES Decryption SUCCESS");
 
     } catch (aesError) {
-        console.error("❌ AES DECRYPTION FAILED");
-        console.error("Error:", aesError.message);
+        console.error("❌ AES DECRYPTION FAILED:", aesError.message);
         return res.status(421).send("Key Refresh Required");
     }
 
-    /* ================================
-       PARSE FLOW DATA
-    ================================= */
-
-    let parsed;
-
-    try {
-        parsed = JSON.parse(decrypted);
-    } catch (jsonError) {
-        console.error("❌ JSON PARSE FAILED:", jsonError.message);
-        return res.status(200).send("Invalid JSON");
-    }
-
+    const parsed = JSON.parse(decrypted);
     const { action, screen, data, flow_token } = parsed;
 
     console.log("➡️ Action:", action);
@@ -128,55 +107,143 @@ app.post("/", async (req, res) => {
 
     let responsePayloadObj = { version: "3.0", data: {} };
 
-    /* ================================
-       FLOW LOGIC
-    ================================= */
+    const getUniqueList = (arr, idKey, titleKey) => {
+        const seen = new Set();
+        return (arr || []).filter(item => {
+            const id = item[idKey]?.toString();
+            if (id && !seen.has(id)) {
+                seen.add(id);
+                return true;
+            }
+            return false;
+        }).map(item => ({
+            id: item[idKey].toString(),
+            title: item[titleKey] || "N/A"
+        }));
+    };
 
     try {
 
-        if (action === "ping") {
-            responsePayloadObj.data = { status: "active" };
-        }
+        /* ================================
+           INIT
+        ================================= */
 
-        else if (action === "INIT") {
+        if (action === "INIT") {
 
-            console.log("🔄 INIT triggered");
+            let mobile = flow_token;
+            if (!mobile || mobile.includes("builder")) mobile = "8488861504";
+
+            console.log("📞 Fetching member for mobile:", mobile);
+
+            const [memberRes, countryRes] = await Promise.all([
+                axios.get(`https://api.abtyp.org/v0/membershipdata?MobileNo=${mobile}`, { headers: ABTYP_HEADERS }),
+                axios.get(`https://api.abtyp.org/v0/country`, { headers: ABTYP_HEADERS })
+            ]);
+
+            const m = memberRes.data?.Data || {};
+
+            const currentCountry = m.CountryId?.toString() || "100";
+            const currentState = m.StateId?.toString() || "";
+            const currentParishad = m.ParishadId?.toString() || "";
+
+            const [stateRes, parishadRes] = await Promise.all([
+                axios.get(`https://api.abtyp.org/v0/state?CountryId=${currentCountry}`, { headers: ABTYP_HEADERS }),
+                currentState
+                    ? axios.get(`https://api.abtyp.org/v0/parishad?StateId=${currentState}`, { headers: ABTYP_HEADERS })
+                    : Promise.resolve({ data: { Data: [] } })
+            ]);
 
             responsePayloadObj.screen = "MEMBER_DETAILS";
             responsePayloadObj.data = {
-                m_name: "Test Name",
-                m_father: "Test Father",
-                m_dob: "01/01/2000",
-                m_email: "test@test.com",
-                member_id: "M_123",
-                mobile_no: "9999999999",
-                member_country: "100",
-                member_state: "12",
-                member_parishad: "58"
+                m_name: m.MemberName || "",
+                m_father: m.FatherName || "",
+                m_dob: m.DateofBirth || "",
+                m_email: m.EmailId || "",
+                member_id: m.MemberId || "",
+                mobile_no: mobile,
+                member_country: currentCountry,
+                member_state: currentState,
+                member_parishad: currentParishad
             };
         }
 
+        /* ================================
+           DATA EXCHANGE
+        ================================= */
+
         else if (action === "data_exchange") {
 
-            if (data.submit_type === "FINAL_SUBMIT") {
+            if (screen === "MEMBER_DETAILS") {
+
+                responsePayloadObj.screen = "LOCATION_SELECT";
+                responsePayloadObj.data = {
+                    country_list: [],
+                    state_list: [],
+                    parishad_list: [],
+                    sel_c: data.member_country,
+                    sel_s: data.member_state,
+                    sel_p: data.member_parishad,
+                    captured_name: data.temp_name,
+                    captured_father: data.temp_father,
+                    captured_dob: data.temp_dob,
+                    captured_email: data.temp_email,
+                    member_id: data.member_id,
+                    mobile_no: data.mobile_no
+                };
+            }
+
+            else if (data.submit_type === "GO_TO_CONFIRM") {
+
+                console.log("🔄 Preparing Confirmation Screen");
+
+                const parishadRes = await axios.get(
+                    `https://api.abtyp.org/v0/parishad?StateId=${data.f_state}`,
+                    { headers: ABTYP_HEADERS }
+                );
+
+                const selected = (parishadRes.data?.Data || [])
+                    .find(p => p.Id.toString() === data.f_parishad_id);
+
+                console.log("Selected Parishad:", selected);
+
+                responsePayloadObj.screen = "CONFIRMATION";
+                responsePayloadObj.data = {
+                    f_name: data.f_name,
+                    f_father: data.f_father,
+                    f_dob: data.f_dob,
+                    f_email: data.f_email,
+                    f_country: data.f_country,
+                    f_state: data.f_state,
+                    f_parishad_id: data.f_parishad_id,
+                    f_parishad_name: selected?.Name || "",
+                    f_parishad_code: selected?.ParshadCode || selected?.ParishadCode || "",
+                    member_id: data.member_id,
+                    mobile_no: data.mobile_no
+                };
+            }
+
+            else if (data.submit_type === "FINAL_SUBMIT") {
 
                 console.log("🟢 FINAL SUBMIT TRIGGERED");
-                console.log("Updating Member:", data);
+
+                const updatePayload = {
+                    MemberId: data.member_id,
+                    MemberName: data.f_name,
+                    MobileNo: data.mobile_no,
+                    EmailId: data.f_email,
+                    CountryId: parseInt(data.f_country),
+                    StateId: parseInt(data.f_state),
+                    ParshadCode: data.f_parishad_code,
+                    DateofBirth: data.f_dob,
+                    FatherName: data.f_father
+                };
+
+                console.log("Updating Member:", updatePayload);
 
                 try {
                     const updateRes = await axios.post(
                         "https://api.abtyp.org/v0/update-membership-data",
-                        {
-                            MemberId: data.member_id,
-                            MemberName: data.f_name,
-                            MobileNo: data.mobile_no,
-                            EmailId: data.f_email,
-                            CountryId: parseInt(data.f_country),
-                            StateId: parseInt(data.f_state),
-                            ParshadCode: data.f_parishad_code,
-                            DateofBirth: data.f_dob,
-                            FatherName: data.f_father
-                        },
+                        updatePayload,
                         { headers: ABTYP_HEADERS }
                     );
 
@@ -194,42 +261,34 @@ app.post("/", async (req, res) => {
 
     } catch (logicError) {
         console.error("❌ FLOW LOGIC ERROR:", logicError.message);
-        return res.status(200).send("Flow Logic Error");
     }
 
     /* ================================
        ENCRYPT RESPONSE
     ================================= */
 
-    try {
+    const requestIv = Buffer.from(initial_vector, "base64");
+    const responseIv = Buffer.alloc(requestIv.length);
 
-        const requestIv = Buffer.from(initial_vector, "base64");
-        const responseIv = Buffer.alloc(requestIv.length);
-
-        for (let i = 0; i < requestIv.length; i++) {
-            responseIv[i] = ~requestIv[i];
-        }
-
-        const cipher = crypto.createCipheriv("aes-128-gcm", aesKey, responseIv);
-
-        const encrypted = Buffer.concat([
-            cipher.update(JSON.stringify(responsePayloadObj), "utf8"),
-            cipher.final()
-        ]);
-
-        const finalPayload = Buffer.concat([
-            encrypted,
-            cipher.getAuthTag()
-        ]).toString("base64");
-
-        console.log("🔐 Response Encrypted Successfully");
-
-        return res.status(200).send(finalPayload);
-
-    } catch (encryptError) {
-        console.error("❌ RESPONSE ENCRYPT FAILED:", encryptError.message);
-        return res.status(500).send("Encryption Failed");
+    for (let i = 0; i < requestIv.length; i++) {
+        responseIv[i] = ~requestIv[i];
     }
+
+    const cipher = crypto.createCipheriv("aes-128-gcm", aesKey, responseIv);
+
+    const encrypted = Buffer.concat([
+        cipher.update(JSON.stringify(responsePayloadObj), "utf8"),
+        cipher.final()
+    ]);
+
+    const finalPayload = Buffer.concat([
+        encrypted,
+        cipher.getAuthTag()
+    ]).toString("base64");
+
+    console.log("🔐 Response Encrypted Successfully");
+
+    return res.status(200).send(finalPayload);
 });
 
 app.listen(process.env.PORT || 3000);
