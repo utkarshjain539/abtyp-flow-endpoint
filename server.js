@@ -115,7 +115,7 @@ app.post("/", async (req, res) => {
             captured_email: data.temp_email
         };
     }
-
+        }
         const cipher = crypto.createCipheriv("aes-128-gcm", aesKey, responseIv);
         const encrypted = Buffer.concat([cipher.update(JSON.stringify(responsePayloadObj), "utf8"), cipher.final()]);
         return res.status(200).send(Buffer.concat([encrypted, cipher.getAuthTag()]).toString("base64"));
