@@ -5,9 +5,7 @@ const axios = require("axios");
 const app = express();
 app.use(express.json());
 
-/* ============================= */
-/*  CONFIG */
-/* ============================= */
+/* ================= CONFIG ================= */
 
 const ABTYP_HEADERS = {
     "api-Key": "ABTYP_API_SECRET_KEY_@ABTYP2023#@763^%ggjhg%",
@@ -20,10 +18,7 @@ const formattedKey = privateKeyInput.includes("BEGIN PRIVATE KEY")
     ? privateKeyInput.replace(/\\n/g, "\n")
     : `-----BEGIN PRIVATE KEY-----\n${privateKeyInput}\n-----END PRIVATE KEY-----`;
 
-
-/* ============================= */
-/*  HELPER */
-/* ============================= */
+/* ================= HELPERS ================= */
 
 const mapList = (arr) =>
     (arr || []).map(item => ({
@@ -31,19 +26,13 @@ const mapList = (arr) =>
         title: item.Name
     }));
 
-
-/* ============================= */
-/*  ROOT */
-/* ============================= */
+/* ================= ROOT ================= */
 
 app.get("/", (req, res) => {
-    res.status(200).send("🚀 ABTYP Flow Server Live");
+    res.status(200).send("🚀 ABTYP Flow Live");
 });
 
-
-/* ============================= */
-/*  FLOW WEBHOOK */
-/* ============================= */
+/* ================= FLOW HANDLER ================= */
 
 app.post("/", async (req, res) => {
 
@@ -52,14 +41,12 @@ app.post("/", async (req, res) => {
 
     try {
 
-        /* ============================= */
-        /*  DECRYPT REQUEST */
-        /* ============================= */
+        /* ===== DECRYPT ===== */
 
         const aesKey = crypto.privateDecrypt({
             key: formattedKey,
             padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
-            oaepHash: "sha256",
+            oaepHash: "sha256"
         }, Buffer.from(encrypted_aes_key, "base64"));
 
         const requestIv = Buffer.from(initial_vector, "base64");
@@ -71,25 +58,24 @@ app.post("/", async (req, res) => {
 
         const decipher = crypto.createDecipheriv("aes-128-gcm", aesKey, requestIv);
 
-        const flowDataBuffer = Buffer.from(encrypted_flow_data, "base64");
+        const flowBuffer = Buffer.from(encrypted_flow_data, "base64");
 
         decipher.setAuthTag(
             authentication_tag
                 ? Buffer.from(authentication_tag, "base64")
-                : flowDataBuffer.slice(-16)
+                : flowBuffer.slice(-16)
         );
 
-        let decrypted =
+        const decrypted =
             decipher.update(
-                authentication_tag ? flowDataBuffer : flowDataBuffer.slice(0, -16),
+                authentication_tag ? flowBuffer : flowBuffer.slice(0, -16),
                 "binary",
                 "utf8"
             ) + decipher.final("utf8");
 
         const { action, screen, data, flow_token } = JSON.parse(decrypted);
 
-        console.log("👉 Action:", action);
-        console.log("👉 Screen:", screen);
+        console.log("Action:", action, "| Screen:", screen);
 
         let responsePayloadObj = {
             version: "3.0",
@@ -97,100 +83,82 @@ app.post("/", async (req, res) => {
             data: {}
         };
 
-        /* ============================= */
-        /*  PING */
-        /* ============================= */
+        /* ================= PING ================= */
 
         if (action === "ping") {
             responsePayloadObj.data = { status: "active" };
         }
 
-        /* ============================= */
-        /*  INIT SCREEN */
-        /* ============================= */
+        /* ================= INIT ================= */
 
         else if (action === "INIT") {
 
             let mobile = flow_token;
-            if (!mobile || mobile.includes("builder")) mobile = "8488861504";
+            if (!mobile || mobile.includes("builder")) {
+                mobile = "8488861504";
+            }
 
-            const [memberRes, countryRes] = await Promise.all([
-                axios.get(`https://api.abtyp.org/v0/membershipdata?MobileNo=${mobile}`, { headers: ABTYP_HEADERS }),
-                axios.get(`https://api.abtyp.org/v0/country`, { headers: ABTYP_HEADERS })
+            const [memberRes] = await Promise.all([
+                axios.get(`https://api.abtyp.org/v0/membershipdata?MobileNo=${mobile}`, { headers: ABTYP_HEADERS })
             ]);
 
             const m = memberRes.data?.Data || {};
 
-            const countryId = m.CountryId?.toString() || "100";
-            const stateId = m.StateId?.toString() || "";
-
-            const [stateRes, parishadRes] = await Promise.all([
-                axios.get(`https://api.abtyp.org/v0/state?CountryId=${countryId}`, { headers: ABTYP_HEADERS }),
-                stateId
-                    ? axios.get(`https://api.abtyp.org/v0/parishad?StateId=${stateId}`, { headers: ABTYP_HEADERS })
-                    : Promise.resolve({ data: { Data: [] } })
-            ]);
-
             responsePayloadObj.screen = "MEMBER_DETAILS";
             responsePayloadObj.data = {
-    m_name: m.MemberName || "",
-    m_father: m.FatherName || "",
-    m_dob: m.DateofBirth || "",
-    m_email: m.EmailId || "",
-    member_id: m.MemberId?.toString() || "",
-    mobile_no: mobile,
-
-    member_country: m.CountryId?.toString() || "100",
-    member_state: m.StateId?.toString() || "",
-    member_parishad: m.ParishadId?.toString() || ""
-};
+                m_name: m.MemberName || "",
+                m_father: m.FatherName || "",
+                m_dob: m.DateofBirth || "",
+                m_email: m.EmailId || "",
+                member_id: m.MemberId?.toString() || "",
+                mobile_no: mobile,
+                member_country: m.CountryId?.toString() || "100",
+                member_state: m.StateId?.toString() || "",
+                member_parishad: m.ParishadId?.toString() || ""
+            };
         }
 
-        /* ============================= */
-        /*  DATA EXCHANGE */
-        /* ============================= */
+        /* ================= DATA EXCHANGE ================= */
 
         else if (action === "data_exchange") {
 
-            /* ---------- MOVE TO LOCATION_SELECT ---------- */
+            /* ===== MOVE TO LOCATION_SELECT ===== */
 
             if (screen === "MEMBER_DETAILS") {
 
-    const countryId = data.member_country || "100";
-    const stateId = data.member_state || "";
-    const parishadId = data.member_parishad || "";
+                const countryId = data.member_country || "100";
+                const stateId = data.member_state || "";
+                const parishadId = data.member_parishad || "";
 
-    const [countryRes, stateRes, parishadRes] = await Promise.all([
-        axios.get(`https://api.abtyp.org/v0/country`, { headers: ABTYP_HEADERS }),
-        countryId
-            ? axios.get(`https://api.abtyp.org/v0/state?CountryId=${countryId}`, { headers: ABTYP_HEADERS })
-            : Promise.resolve({ data: { Data: [] } }),
-        stateId
-            ? axios.get(`https://api.abtyp.org/v0/parishad?StateId=${stateId}`, { headers: ABTYP_HEADERS })
-            : Promise.resolve({ data: { Data: [] } })
-    ]);
+                const [countryRes, stateRes, parishadRes] = await Promise.all([
+                    axios.get(`https://api.abtyp.org/v0/country`, { headers: ABTYP_HEADERS }),
+                    axios.get(`https://api.abtyp.org/v0/state?CountryId=${countryId}`, { headers: ABTYP_HEADERS }),
+                    stateId
+                        ? axios.get(`https://api.abtyp.org/v0/parishad?StateId=${stateId}`, { headers: ABTYP_HEADERS })
+                        : Promise.resolve({ data: { Data: [] } })
+                ]);
 
-    responsePayloadObj.screen = "LOCATION_SELECT";
-    responsePayloadObj.data = {
-        country_list: mapList(countryRes.data?.Data),
-        state_list: mapList(stateRes.data?.Data),
-        parishad_list: mapList(parishadRes.data?.Data),
+                responsePayloadObj.screen = "LOCATION_SELECT";
+                responsePayloadObj.data = {
+                    country_list: mapList(countryRes.data?.Data),
+                    state_list: mapList(stateRes.data?.Data),
+                    parishad_list: mapList(parishadRes.data?.Data),
 
-        sel_c: countryId,
-        sel_s: stateId,
-        sel_p: parishadId,
+                    sel_c: countryId,
+                    sel_s: stateId,
+                    sel_p: parishadId,
 
-        captured_name: data.temp_name,
-        captured_father: data.temp_father,
-        captured_dob: data.temp_dob,
-        captured_email: data.temp_email,
+                    captured_name: data.temp_name,
+                    captured_father: data.temp_father,
+                    captured_dob: data.temp_dob,
+                    captured_email: data.temp_email,
 
-        member_id: data.member_id,
-        mobile_no: data.mobile_no
-    };
-}
+                    member_id: data.member_id,
+                    mobile_no: data.mobile_no
+                };
+            }
 
-            /* ---------- COUNTRY CHANGE ---------- */
+            /* ===== COUNTRY CHANGE ===== */
 
             else if (data.exchange_type === "COUNTRY_CHANGE") {
 
@@ -209,7 +177,7 @@ app.post("/", async (req, res) => {
                 };
             }
 
-            /* ---------- STATE CHANGE ---------- */
+            /* ===== STATE CHANGE ===== */
 
             else if (data.exchange_type === "STATE_CHANGE") {
 
@@ -226,7 +194,7 @@ app.post("/", async (req, res) => {
                 };
             }
 
-            /* ---------- GO TO CONFIRM ---------- */
+            /* ===== GO TO CONFIRM ===== */
 
             else if (data.submit_type === "GO_TO_CONFIRM") {
 
@@ -246,7 +214,7 @@ app.post("/", async (req, res) => {
                 };
             }
 
-            /* ---------- FINAL SUBMIT ---------- */
+            /* ===== FINAL SUBMIT ===== */
 
             else if (data.submit_type === "FINAL_SUBMIT") {
 
@@ -262,29 +230,23 @@ app.post("/", async (req, res) => {
                     FatherName: data.f_father
                 };
 
-                console.log("🚀 Updating Member:", updatePayload);
+                console.log("Updating Member:", updatePayload);
 
-                const updateRes = await axios.post(
+                await axios.post(
                     "https://api.abtyp.org/v0/update-membership-data",
                     updatePayload,
                     { headers: ABTYP_HEADERS }
                 );
 
-                console.log("✅ Update Response:", updateRes.data);
-
                 responsePayloadObj.screen = "CONFIRMATION";
                 responsePayloadObj.data = {
                     ...data,
-                    f_parishad_name: data.f_parishad_name,
-                    f_parishad_code: data.f_parishad_code,
                     update_status: "Registration Updated Successfully ✅"
                 };
             }
         }
 
-        /* ============================= */
-        /*  ENCRYPT RESPONSE */
-        /* ============================= */
+        /* ===== ENCRYPT RESPONSE ===== */
 
         const cipher = crypto.createCipheriv("aes-128-gcm", aesKey, responseIv);
 
@@ -298,16 +260,13 @@ app.post("/", async (req, res) => {
         );
 
     } catch (err) {
-        console.error("❌ ERROR:", err.message);
+        console.error("ERROR:", err.message);
         return res.status(421).send("Key Refresh Required");
     }
 });
 
-
-/* ============================= */
-/*  SERVER START */
-/* ============================= */
+/* ================= START ================= */
 
 app.listen(process.env.PORT || 3000, () => {
-    console.log("🚀 Server running...");
+    console.log("🚀 Server Running");
 });
