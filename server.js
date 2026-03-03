@@ -29,6 +29,14 @@ const mapList = (arr) =>
         title: item.Name
     }));
 
+function calculateAge(dob) {
+    if (!dob) return 18;
+    const parts = dob.split("/");
+    const birthDate = new Date(parts[2], parts[1] - 1, parts[0]);
+    const diff = Date.now() - birthDate.getTime();
+    return new Date(diff).getUTCFullYear() - 1970;
+}
+
 /* ================= ROOT ================= */
 
 app.get("/", (req, res) => {
@@ -46,15 +54,13 @@ app.post("/", async (req, res) => {
     const { encrypted_aes_key, encrypted_flow_data, initial_vector, authentication_tag } = req.body;
 
     if (!encrypted_aes_key) {
-        console.log("⚠️ No encrypted key (ping/test)");
+        console.log("⚠️ No encrypted key");
         return res.status(200).send("OK");
     }
 
     try {
 
         /* ===== RSA DECRYPT ===== */
-
-        console.log("🔑 Encrypted AES Key Length:", encrypted_aes_key.length);
 
         const aesKey = crypto.privateDecrypt({
             key: formattedKey,
@@ -102,16 +108,9 @@ app.post("/", async (req, res) => {
             data: {}
         };
 
-        /* ================= PING ================= */
-
-        if (action === "ping") {
-            console.log("🏓 Ping received");
-            responsePayloadObj.data = { status: "active" };
-        }
-
         /* ================= INIT ================= */
 
-        else if (action === "INIT") {
+        if (action === "INIT") {
 
             let mobile = flow_token;
             if (!mobile || mobile.includes("builder")) {
@@ -125,8 +124,6 @@ app.post("/", async (req, res) => {
                 { headers: ABTYP_HEADERS }
             );
 
-            console.log("📦 Membership API Response Received");
-
             const m = memberRes.data?.Data || {};
 
             responsePayloadObj.screen = "MEMBER_DETAILS";
@@ -135,27 +132,23 @@ app.post("/", async (req, res) => {
                 m_father: m.FatherName || "",
                 m_dob: m.DateofBirth || "",
                 m_email: m.EmailId || "",
+                blood_group: m.BloodGroup || "",
+                married: m.Married || "No",
+                date_of_marriage: m.DateofMarriage || "",
+                address: m.Address || "",
                 member_id: m.MemberId?.toString() || "",
                 mobile_no: mobile,
                 member_country: m.CountryId?.toString() || "100",
                 member_state: m.StateId?.toString() || "",
                 member_parishad: m.ParishadId?.toString() || ""
             };
-
-            console.log("✅ MEMBER_DETAILS prepared");
         }
 
         /* ================= DATA EXCHANGE ================= */
 
         else if (action === "data_exchange") {
 
-            console.log("🔄 Data Exchange Triggered");
-
-            /* ===== MOVE TO LOCATION_SELECT ===== */
-
             if (screen === "MEMBER_DETAILS") {
-
-                console.log("➡️ Moving to LOCATION_SELECT");
 
                 const countryId = data.member_country || "100";
                 const stateId = data.member_state || "";
@@ -169,104 +162,30 @@ app.post("/", async (req, res) => {
                         : Promise.resolve({ data: { Data: [] } })
                 ]);
 
-                console.log("🌍 Country Count:", countryRes.data?.Data?.length);
-                console.log("🏙 State Count:", stateRes.data?.Data?.length);
-                console.log("🏢 Parishad Count:", parishadRes.data?.Data?.length);
-
                 responsePayloadObj.screen = "LOCATION_SELECT";
                 responsePayloadObj.data = {
                     country_list: mapList(countryRes.data?.Data),
                     state_list: mapList(stateRes.data?.Data),
                     parishad_list: mapList(parishadRes.data?.Data),
+
                     sel_c: countryId,
                     sel_s: stateId,
                     sel_p: parishadId,
+
                     captured_name: data.temp_name,
                     captured_father: data.temp_father,
                     captured_dob: data.temp_dob,
                     captured_email: data.temp_email,
+
+                    blood_group: data.blood_group,
+                    married: data.married,
+                    date_of_marriage: data.date_of_marriage,
+                    address: data.address,
+
                     member_id: data.member_id,
                     mobile_no: data.mobile_no
                 };
             }
-
-            /* ===== COUNTRY CHANGE ===== */
-
-            else if (data.exchange_type === "COUNTRY_CHANGE") {
-
-                console.log("🌍 Country Changed To:", data.sel_c);
-
-                const stateRes = await axios.get(
-                    `https://api.abtyp.org/v0/state?CountryId=${data.sel_c}`,
-                    { headers: ABTYP_HEADERS }
-                );
-
-                console.log("🏙 New State Count:", stateRes.data?.Data?.length);
-
-                responsePayloadObj.screen = "LOCATION_SELECT";
-                responsePayloadObj.data = {
-                    ...data,
-                    state_list: mapList(stateRes.data?.Data),
-                    parishad_list: [],
-                    sel_s: "",
-                    sel_p: ""
-                };
-            }
-
-            /* ===== STATE CHANGE ===== */
-
-            else if (data.exchange_type === "STATE_CHANGE") {
-
-                console.log("🏙 State Changed To:", data.sel_s);
-
-                const parishadRes = await axios.get(
-                    `https://api.abtyp.org/v0/parishad?StateId=${data.sel_s}`,
-                    { headers: ABTYP_HEADERS }
-                );
-
-                console.log("🏢 New Parishad Count:", parishadRes.data?.Data?.length);
-
-                responsePayloadObj.screen = "LOCATION_SELECT";
-                responsePayloadObj.data = {
-                    ...data,
-                    parishad_list: mapList(parishadRes.data?.Data),
-                    sel_p: ""
-                };
-            }
-
-            /* ===== GO TO CONFIRM ===== */
-
-            else if (data.submit_type === "GO_TO_CONFIRM") {
-
-                console.log("📝 Preparing Confirmation Screen");
-
-                const parishadRes = await axios.get(
-                    `https://api.abtyp.org/v0/parishad?StateId=${data.f_state}`,
-                    { headers: ABTYP_HEADERS }
-                );
-
-                const selected = (parishadRes.data?.Data || [])
-                    .find(p => p.Id.toString() === data.f_parishad_id);
-
-                console.log("📌 Selected Parishad:", selected);
-
-                responsePayloadObj.screen = "CONFIRMATION";
-                responsePayloadObj.data = {
-                    f_name: data.f_name,
-                    f_father: data.f_father,
-                    f_dob: data.f_dob,
-                    f_email: data.f_email,
-                    f_country: data.f_country,
-                    f_state: data.f_state,
-                    f_parishad_id: data.f_parishad_id,
-                    f_parishad_name: selected?.Name || "",
-                    f_parishad_code: selected?.ParishadCode || "",
-                    member_id: data.member_id,
-                    mobile_no: data.mobile_no
-                };
-            }
-
-            /* ===== FINAL SUBMIT ===== */
 
             else if (data.submit_type === "FINAL_SUBMIT") {
 
@@ -277,9 +196,17 @@ app.post("/", async (req, res) => {
                     EmailId: data.f_email,
                     CountryId: parseInt(data.f_country),
                     StateId: parseInt(data.f_state),
-                    ParishadCode: data.f_parishad_code,
+                    ParshadCode: data.f_parishad_code,
                     DateofBirth: data.f_dob,
-                    FatherName: data.f_father
+                    FatherName: data.f_father,
+                    Age: calculateAge(data.f_dob),
+                    BloodGroup: data.blood_group,
+                    Married: data.married,
+                    DateofMarriage: data.married === "Yes" ? data.date_of_marriage : "",
+                    Address: data.address,
+                    OtherParishad: "",
+                    Membership: "",
+                    RefNo: ""
                 };
 
                 console.log("🚀 Updating Member:", updatePayload);
@@ -309,24 +236,22 @@ app.post("/", async (req, res) => {
             cipher.final()
         ]);
 
-        console.log("🔐 Response Encrypted & Sent");
-
         return res.status(200).send(
             Buffer.concat([encrypted, cipher.getAuthTag()]).toString("base64")
         );
 
     } catch (err) {
+
         if (err.response) {
-    console.error("❌ API ERROR STATUS:", err.response.status);
-    console.error("❌ API ERROR FULL:", JSON.stringify(err.response.data, null, 2));
-} else {
-    console.error("❌ ERROR:", err.message);
-}
+            console.error("❌ API ERROR STATUS:", err.response.status);
+            console.error("❌ API ERROR FULL:", JSON.stringify(err.response.data, null, 2));
+        } else {
+            console.error("❌ ERROR:", err.message);
+        }
+
         return res.status(421).send("Key Refresh Required");
     }
 });
-
-/* ================= START ================= */
 
 app.listen(process.env.PORT || 3000, () => {
     console.log("🚀 Server Running");
