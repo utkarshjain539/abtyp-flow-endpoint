@@ -216,7 +216,7 @@ app.post("/", async (req, res) => {
         f_state: data.f_state,
         f_parishad_id: data.f_parishad_id,
         f_parishad_name: selected?.Name || "",
-        f_parishad_code: selected?.ParshadCode || "",
+        f_parishad_code: selected?.ParishadCode || "",
         member_id: data.member_id,
         mobile_no: data.mobile_no
     };
@@ -233,7 +233,7 @@ app.post("/", async (req, res) => {
         EmailId: data.f_email,
         CountryId: parseInt(data.f_country),
         StateId: parseInt(data.f_state),
-        ParshadCode: data.f_parishad_code,
+        ParishadCode: data.f_parishad_code,
         DateofBirth: data.f_dob,
         FatherName: data.f_father
     };
