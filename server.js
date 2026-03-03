@@ -86,45 +86,35 @@ app.post("/", async (req, res) => {
             };
         }
         else if (action === "data_exchange") {
-            if (screen === "MEMBER_DETAILS") {
-                // Moving to Screen 2 using the IDs to fill the dropdown names
-                responsePayloadObj.screen = "LOCATION_SELECT";
-                responsePayloadObj.data = {
-                    country_list: data.country_list || [],
-                    state_list: data.init_state_list || [],
-                    parishad_list: data.init_parishad_list || [],
-                    sel_c: data.init_sel_c || "100",
-                    sel_s: data.init_sel_s || "",
-                    sel_p: data.init_sel_p || "",
-                    captured_name: data.temp_name,
-                    captured_father: data.temp_father,
-                    captured_dob: data.temp_dob,
-                    captured_email: data.temp_email
-                };
-            } 
-            else if (screen === "LOCATION_SELECT") {
-                // Cascading logic when user manually changes selections
-                if (data.exchange_type === "COUNTRY_CHANGE") {
-                    const stateRes = await axios.get(`https://api.abtyp.org/v0/state?CountryId=${data.sel_c}`, { headers: ABTYP_HEADERS });
-                    responsePayloadObj.screen = "LOCATION_SELECT";
-                    responsePayloadObj.data = {
-                        ...data,
-                        state_list: getUniqueList(stateRes.data?.Data, "StateId", "StateName"),
-                        parishad_list: [],
-                        sel_s: "",
-                        sel_p: ""
-                    };
-                } else if (data.exchange_type === "STATE_CHANGE") {
-                    const parishadRes = await axios.get(`https://api.abtyp.org/v0/parishad?StateId=${data.sel_s}`, { headers: ABTYP_HEADERS });
-                    responsePayloadObj.screen = "LOCATION_SELECT";
-                    responsePayloadObj.data = {
-                        ...data,
-                        parishad_list: getUniqueList(parishadRes.data?.Data, "ParishadId", "ParishadName"),
-                        sel_p: ""
-                    };
-                }
-            }
-        }
+    if (screen === "MEMBER_DETAILS") {
+
+        const countryId = data.init_sel_c || "100";
+        const stateId = data.init_sel_s || "";
+
+        const [countryRes, stateRes, parishadRes] = await Promise.all([
+            axios.get(`https://api.abtyp.org/v0/country`, { headers: ABTYP_HEADERS }),
+            axios.get(`https://api.abtyp.org/v0/state?CountryId=${countryId}`, { headers: ABTYP_HEADERS }),
+            stateId
+                ? axios.get(`https://api.abtyp.org/v0/parishad?StateId=${stateId}`, { headers: ABTYP_HEADERS })
+                : Promise.resolve({ data: { Data: [] } })
+        ]);
+
+        responsePayloadObj.screen = "LOCATION_SELECT";
+        responsePayloadObj.data = {
+            country_list: getUniqueList(countryRes.data?.Data, "CountryId", "CountryName"),
+            state_list: getUniqueList(stateRes.data?.Data, "StateId", "StateName"),
+            parishad_list: getUniqueList(parishadRes.data?.Data, "ParishadId", "ParishadName"),
+
+            sel_c: countryId,
+            sel_s: stateId,
+            sel_p: data.init_sel_p || "",
+
+            captured_name: data.temp_name,
+            captured_father: data.temp_father,
+            captured_dob: data.temp_dob,
+            captured_email: data.temp_email
+        };
+    }
 
         const cipher = crypto.createCipheriv("aes-128-gcm", aesKey, responseIv);
         const encrypted = Buffer.concat([cipher.update(JSON.stringify(responsePayloadObj), "utf8"), cipher.final()]);
