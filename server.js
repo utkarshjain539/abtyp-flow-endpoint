@@ -316,7 +316,12 @@ app.post("/", async (req, res) => {
         );
 
     } catch (err) {
-        console.error("❌ ERROR:", err.response?.data || err.message);
+        if (err.response) {
+    console.error("❌ API ERROR STATUS:", err.response.status);
+    console.error("❌ API ERROR FULL:", JSON.stringify(err.response.data, null, 2));
+} else {
+    console.error("❌ ERROR:", err.message);
+}
         return res.status(421).send("Key Refresh Required");
     }
 });
