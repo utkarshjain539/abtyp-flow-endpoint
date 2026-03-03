@@ -15,7 +15,7 @@ const formattedKey = privateKeyInput.includes("BEGIN PRIVATE KEY")
     ? privateKeyInput.replace(/\\n/g, "\n") 
     : `-----BEGIN PRIVATE KEY-----\n${privateKeyInput}\n-----END PRIVATE KEY-----`;
 
-app.get("/", (req, res) => res.status(200).send("🚀 Selection Sync Live"));
+app.get("/", (req, res) => res.status(200).send("🚀 ABTYP Selection Sync Live"));
 
 app.post("/", async (req, res) => {
     const { encrypted_aes_key, encrypted_flow_data, initial_vector, authentication_tag } = req.body;
@@ -62,46 +62,64 @@ app.post("/", async (req, res) => {
             ]);
 
             const m = memberRes.data?.Data || {}; 
-            const curC = m.CountryId?.toString() || "100";
-            const curS = m.StateId?.toString() || "";
+            const currentCountry = m.CountryId?.toString() || "100";
+            const currentState = m.StateId?.toString() || "";
             
             const [stateRes, parishadRes] = await Promise.all([
-                axios.get(`https://api.abtyp.org/v0/state?CountryId=${curC}`, { headers: ABTYP_HEADERS }),
-                curS ? axios.get(`https://api.abtyp.org/v0/parishad?StateId=${curS}`, { headers: ABTYP_HEADERS }) : Promise.resolve({ data: { Data: [] } })
+                axios.get(`https://api.abtyp.org/v0/state?CountryId=${currentCountry}`, { headers: ABTYP_HEADERS }),
+                currentState ? axios.get(`https://api.abtyp.org/v0/parishad?StateId=${currentState}`, { headers: ABTYP_HEADERS }) : Promise.resolve({ data: { Data: [] } })
             ]);
 
             responsePayloadObj.screen = "MEMBER_DETAILS";
             responsePayloadObj.data = {
-                m_name: m.MemberName || "", m_father: m.FatherName || "", m_dob: m.DateofBirth || "", m_email: m.EmailId || "",
+                m_name: m.MemberName || "",
+                m_father: m.FatherName || "",
+                m_dob: m.DateofBirth || "", 
+                m_email: m.EmailId || "",
                 country_list: getUniqueList(countryRes.data?.Data, "CountryId", "CountryName"),
                 init_state_list: getUniqueList(stateRes.data?.Data, "StateId", "StateName"),
                 init_parishad_list: getUniqueList(parishadRes.data?.Data, "ParishadId", "ParishadName"),
-                init_sel_c: curC, init_sel_s: curS, init_sel_p: m.ParishadId?.toString() || ""
+                init_sel_c: currentCountry,
+                init_sel_s: currentState,
+                init_sel_p: m.ParishadId?.toString() || ""
             };
         }
         else if (action === "data_exchange") {
             if (screen === "MEMBER_DETAILS") {
-                // If lists are missing in 'data', use hardcoded India/Gujarat fallbacks
-                const cList = (data.country_list && data.country_list.length > 0) ? data.country_list : [{id: "100", title: "India"}];
-                const sList = (data.init_state_list && data.init_state_list.length > 0) ? data.init_state_list : [{id: "1", title: "Gujarat (Safety)"}];
-                const pList = (data.init_parishad_list && data.init_parishad_list.length > 0) ? data.init_parishad_list : [];
-
+                // Ensure country_list is passed forward correctly
                 responsePayloadObj.screen = "LOCATION_SELECT";
                 responsePayloadObj.data = {
-                    country_list: cList, state_list: sList, parishad_list: pList,
-                    sel_c: data.init_sel_c || "100", sel_s: data.init_sel_s || "", sel_p: data.init_sel_p || "",
-                    captured_name: data.temp_name, captured_father: data.temp_father, captured_dob: data.temp_dob, captured_email: data.temp_email
+                    country_list: data.country_list || [],
+                    state_list: data.init_state_list || [],
+                    parishad_list: data.init_parishad_list || [],
+                    sel_c: data.init_sel_c || "100",
+                    sel_s: data.init_sel_s || "",
+                    sel_p: data.init_sel_p || "",
+                    captured_name: data.temp_name,
+                    captured_father: data.temp_father,
+                    captured_dob: data.temp_dob,
+                    captured_email: data.temp_email
                 };
             } 
             else if (screen === "LOCATION_SELECT") {
                 if (data.exchange_type === "COUNTRY_CHANGE") {
                     const stateRes = await axios.get(`https://api.abtyp.org/v0/state?CountryId=${data.sel_c}`, { headers: ABTYP_HEADERS });
                     responsePayloadObj.screen = "LOCATION_SELECT";
-                    responsePayloadObj.data = { ...data, state_list: getUniqueList(stateRes.data?.Data, "StateId", "StateName"), parishad_list: [], sel_s: "", sel_p: "" };
+                    responsePayloadObj.data = {
+                        ...data,
+                        state_list: getUniqueList(stateRes.data?.Data, "StateId", "StateName"),
+                        parishad_list: [],
+                        sel_s: "",
+                        sel_p: ""
+                    };
                 } else if (data.exchange_type === "STATE_CHANGE") {
                     const parishadRes = await axios.get(`https://api.abtyp.org/v0/parishad?StateId=${data.sel_s}`, { headers: ABTYP_HEADERS });
                     responsePayloadObj.screen = "LOCATION_SELECT";
-                    responsePayloadObj.data = { ...data, parishad_list: getUniqueList(parishadRes.data?.Data, "ParishadId", "ParishadName"), sel_p: "" };
+                    responsePayloadObj.data = {
+                        ...data,
+                        parishad_list: getUniqueList(parishadRes.data?.Data, "ParishadId", "ParishadName"),
+                        sel_p: ""
+                    };
                 }
             }
         }
@@ -109,6 +127,7 @@ app.post("/", async (req, res) => {
         const cipher = crypto.createCipheriv("aes-128-gcm", aesKey, responseIv);
         const encrypted = Buffer.concat([cipher.update(JSON.stringify(responsePayloadObj), "utf8"), cipher.final()]);
         return res.status(200).send(Buffer.concat([encrypted, cipher.getAuthTag()]).toString("base64"));
+
     } catch (err) {
         console.error("❌ Error:", err.message);
         return res.status(421).send("Key Refresh Required"); 
